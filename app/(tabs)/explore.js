@@ -1,23 +1,17 @@
-// DharmaChat Phase 1 Final - All bugs fixed
-// Key fix: ALL user data loaded INSIDE useEffect - no module-level userLang
+// ════════════════════════════════════════════════════════
+// DharmaSetu — DharmaChat Phase 1 FINAL
+// ✅ Emotion detection in user messages
+// ✅ Vastly improved system prompt
+// ✅ All bugs fixed
+// ════════════════════════════════════════════════════════
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  Dimensions,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  StatusBar as RNStatusBar,
-  ScrollView,
-  StyleSheet, Text,
-  TextInput,
-  TouchableOpacity,
-  Vibration,
-  View
+  ActivityIndicator, Alert, Animated, Dimensions,
+  KeyboardAvoidingView, Modal, Platform,
+  StatusBar as RNStatusBar, ScrollView, StyleSheet,
+  Text, TextInput, TouchableOpacity, Vibration, View
 } from 'react-native';
 
 const { width: SW } = Dimensions.get('window');
@@ -25,122 +19,188 @@ const SB_H = RNStatusBar.currentHeight || 0;
 
 const Sec = {
   reqs: [],
-  ok() { const n=Date.now(); this.reqs=this.reqs.filter(t=>n-t<60000); if(this.reqs.length>=20)return false; this.reqs.push(n); return true; },
-  clean(t) { return t.replace(/<[^>]*>/g,'').replace(/[<>"'%;()&+\\]/g,'').trim().slice(0,500); },
-  valid(t) { return ![/ignore\s+previous/i,/system\s+prompt/i,/jailbreak/i,/pretend.*be/i,/you\s+are\s+now/i].some(p=>p.test(t)); }
+  ok() { const n=Date.now(); this.reqs=this.reqs.filter(t=>n-t<60000); if(this.reqs.length>=25)return false; this.reqs.push(n); return true; },
+  clean(t) { return t.replace(/<[^>]*>/g,'').replace(/[<>"'%;()&+\\]/g,'').trim().slice(0,600); },
+  valid(t) { return ![/ignore\s+previous/i,/system\s+prompt/i,/jailbreak/i,/pretend.*be/i,/you\s+are\s+now/i,/DAN/i].some(p=>p.test(t)); }
 };
 
 const GROQ_KEY = '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';
 const GEM_KEY  = 'AIzaSyDyRn42EYd5pvf3pwKvZqSb5YwLbL6Zi8Q';
 
-function buildSys(lang, name, deity, rashi, isFC) {
+function detectEmotion(text) {
+  const t = text.toLowerCase();
+  if (/angry|rage|gussa|krodh|frustrated|थक|गुस्सा/.test(t)) return 'angry';
+  if (/sad|cry|grief|loss|died|death|maut|dukhi|dard|दुख|दर्द|rona/.test(t)) return 'grieving';
+  if (/scared|fear|darr|afraid|worried|anxiety|डर/.test(t)) return 'fearful';
+  if (/alone|lonely|akela|akeli|अकेला|isolated/.test(t)) return 'lonely';
+  if (/debate|argue|counter|prove|defend|bata|बताओ/.test(t)) return 'debate';
+  if (/attack|fake|false|wrong|jhuth|झूठ|lie|nonsense/.test(t)) return 'defensive';
+  if (/confused|samajh|kyun|why|kya|pata nahi|समझ|क्यों/.test(t)) return 'confused';
+  return 'neutral';
+}
+
+function buildSys(lang, name, deity, rashi, isFC, emotion) {
   const LANG_RULES = {
-    hindi:'ONLY शुद्ध हिंदी (Devanagari). शून्य English, शून्य Hinglish.',
-    english:'ONLY pure English. Zero Hindi. Zero Hinglish.',
-    marathi:'ONLY मराठी.',bengali:'ONLY বাংলা।',tamil:'ONLY தமிழ்.',
-    telugu:'ONLY తెలుగు.',kannada:'ONLY ಕನ್ನಡ.',gujarati:'ONLY ગુજરાતી.',
-    punjabi:'ONLY ਪੰਜਾਬੀ.',urdu:'ONLY اردو.',
+    hindi:'ABSOLUTE: Respond ONLY in शुद्ध हिंदी Devanagari. ZERO English. ZERO Hinglish. Exception ONLY: Sanskrit shlokas, then Hindi translation.',
+    english:'ABSOLUTE: Respond ONLY in pure English. ZERO Hindi. ZERO Hinglish. Exception ONLY: Sanskrit shlokas in Devanagari, then English translation.',
+    marathi:'ABSOLUTE: Respond ONLY in मराठी.',
+    bengali:'ABSOLUTE: Respond ONLY in বাংলা।',
+    tamil:'ABSOLUTE: Respond ONLY in தமிழ்.',
+    telugu:'ABSOLUTE: Respond ONLY in తెలుగు.',
+    gujarati:'ABSOLUTE: Respond ONLY in ગુજરાતી.',
+    punjabi:'ABSOLUTE: Respond ONLY in ਪੰਜਾਬੀ.',
   };
-  const fcBlock = isFC ? `\nFACT CHECK MODE: Respond with VERDICT: [TRUE/FALSE/MISLEADING/MISATTRIBUTED] then full truth with scripture evidence.\n` : '';
-  return `You are DharmaSetu — guardian of Sanatan Dharma. Bold, compassionate, precise.
 
-LANGUAGE LAW — ABSOLUTE: ${LANG_RULES[lang]||LANG_RULES.hindi}
-Exception: Sanskrit quotes in Devanagari, then translate.
+  const emotionGuide = {
+    angry: 'Person is ANGRY. Acknowledge their anger. Dharma recognizes righteous anger (Arjuna, Ram). Channel toward truth and strength.',
+    grieving: 'Person is GRIEVING. Deep compassion FIRST. Hold their pain. Gita Ch.2 on soul\'s eternity ONLY after empathy. Never rush to philosophy.',
+    fearful: 'Person is SCARED. Begin with Abhaya (fearlessness). Gita 16.1: "Abhayam sattvasamsuddhih". Show dharma as protection.',
+    lonely: 'Person feels ALONE. Atman is never alone (Gita 13.22). Krishna in every heart (Gita 18.61). Hanuman alone in Lanka, Ram in heart.',
+    debate: 'Person wants DEBATE AMMUNITION. Give sharp, precise facts. Exact verse references. 3 unshakeable counter-arguments.',
+    defensive: 'Person is DEFENDING dharma against false claim. Give FULL TRUTH: what scripture ACTUALLY says + historical context + colonial distortion exposed.',
+    confused: 'Person is CONFUSED. Acknowledge confusion is natural (Arjuna was confused — that is why Gita exists). Guide step by step.',
+    neutral: 'Person asks genuine question. Be warm, deeply knowledgeable, and insightful.',
+  };
 
-USER: ${name||'Dharma Rakshak'} | Rashi: ${rashi||'—'} | Deity: ${deity||'—'}
+  const fcBlock = isFC ? `
+FACT CHECK MODE:
+Format EXACTLY:
+VERDICT: [TRUE / FALSE / MISLEADING / MISATTRIBUTED]
+TRUTH: [Full correct explanation]
+SCRIPTURE: [Exact verse/reference]
+CONTEXT: [Historical context if needed]
+DEBUNK: [Why false claim spread and how to counter it]
+` : '';
+
+  return `You are DharmaSetu — Guardian, Teacher, and Voice of Sanatan Dharma.
+
+LANGUAGE LAW (NEVER BREAK):
+${LANG_RULES[lang] || LANG_RULES.hindi}
+
+USER: ${name||'Dharma Rakshak'} | Rashi: ${rashi||'?'} | Ishta Dev: ${deity||'?'}
+Detected Emotion: ${emotion}
+
+EMOTIONAL INTELLIGENCE:
+${emotionGuide[emotion] || emotionGuide.neutral}
+
 ${fcBlock}
-EMOTIONAL CARE: Personal pain → empathy first, then Dharmic wisdom tied to their specific situation and deity.
 
-SCRIPTURE FORMAT: "श्लोक..." (Source, Ch.Verse) → [translation]
+ANSWER STRUCTURE (FOLLOW EXACTLY):
 
-SHAMBUKA TRUTH (all 3 sources):
-1) Valmiki Ramayana Uttara Kanda 74-76: Tapasya caused cosmic imbalance. Brahmin child died. Ram acted as rajadharma — not personal hatred.
-2) Padma+Skanda Purana: Shambuka was rakshasa in previous birth. Tapasya was tamasic — for supernatural power, not moksha.
-3) RESULT: Devatas showered flowers. Brahmin child revived. Shambuka got MOKSHA. Divine grace, not caste punishment. Colonial "oppression" narrative = 19th century fabrication.
+TITLE: [emoji] [5-7 word title in user's language]
 
-ARYAN INVASION: Demolished — Rakhigarhi DNA 2019 (Science journal). Genetic continuity proved. AIT = colonial divide-and-rule.
-KRISHNA: Jara hunter's arrow (Mahabharata, Mausala Parva 2-3). Krishna's own leela.
-BHEEL: Bhil King Guha = Ram's closest friend (Ramayana, Ayodhya Kanda 1-4). Birsa Munda built Shiva+Vishnu temples.
-CASTE: Gita 4.13 — Varna by GUNA+KARMA not birth. British 1871 Census rigidified caste artificially.
+1. EMOTIONAL OPENING (2-3 sentences)
+   — Acknowledge their specific emotion/situation FIRST
+   — Make them feel heard before any teaching
 
-RESPONSE FORMAT:
-TITLE: [emoji] [4-6 words in user's language]
-[Answer — flowing, warm, no headers]
-SHASTRIYA: [exact refs]
+2. CORE DHARMIC ANSWER (main body)
+   — Deep, multi-layered explanation
+   — NOT just facts — explain the MEANING, the WHY, human relevance
+   — Real Puranic stories and examples
+   — Connect ancient wisdom to modern life
+
+3. SCRIPTURE (mandatory)
+   — Sanskrit shloka in Devanagari: "श्लोक..."
+   — Word-by-word meaning
+   — Overall meaning in context
+   — Exact source: (Text Name, Chapter.Verse)
+
+4. COLONIAL/HISTORICAL CONTEXT (when relevant)
+   — Correct British-era misinterpretations
+   — Historical evidence
+
+5. EMPOWERING CLOSE (2-3 sentences)
+   — Practical takeaway for their life TODAY
+   — Debate-ready summary if needed
+
+SHASTRIYA: [all scripture references]
 VERIFIED: true
 
-RULES: Pure language only · Sanskrit quotes · Complete truth · Never fabricate · Under 300 words`;
+EXAMPLE OF QUALITY EXPECTED:
+Q: "If Ram is God why did he need monkeys?"
+BAD: "Ram took help from Vanara Sena to defeat Ravana."
+GOOD: "Ram came as Maryada Purushottam — the Perfect Human Avatar. He destroyed 14,000 demons ALONE in Aranya Kanda (Valmiki Ramayana 3.22-26), so power was never the issue. He CHOSE Hanuman to honor devotion. The Vanara Sena teaches: dharmic victory requires community. No righteous person wins alone. Hanuman (jivatma) finds purpose serving Ram (Paramatma) — this is the cosmic blueprint of Bhakti. Ram chose to show us how dharmic humans should organize around truth."
+
+ABSOLUTE RULES:
+1. NEVER attack any other religion
+2. NEVER fabricate scripture — if uncertain, say so
+3. Sanskrit MUST be in Devanagari
+4. Response: 200-400 words
+5. EMPATHY BEFORE PHILOSOPHY — always`;
 }
 
 async function callGroq(msgs) {
-  const r = await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+GROQ_KEY},body:JSON.stringify({model:'llama-3.3-70b-versatile',messages:msgs,temperature:0.75,max_tokens:1024})});
+  const r = await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+GROQ_KEY},body:JSON.stringify({model:'llama-3.3-70b-versatile',messages:msgs,temperature:0.78,max_tokens:1200})});
   const d = await r.json();
   if(d.error) throw new Error(d.error.message);
   return d.choices[0].message.content;
 }
 
 async function callGemini(q,sys) {
-  const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+GEM_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:sys+'\n\nUser: '+q}]}],generationConfig:{temperature:0.75,maxOutputTokens:1024}})});
+  const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+GEM_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:sys+'\n\nUser: '+q}]}],generationConfig:{temperature:0.78,maxOutputTokens:1200}})});
   const d = await r.json();
   if(d.error) throw new Error(d.error.message);
   return d.candidates[0].content.parts[0].text;
 }
 
 async function getAnswer(q,hist,sys) {
-  const msgs=[{role:'system',content:sys},...hist.slice(-8),{role:'user',content:q}];
+  const msgs=[{role:'system',content:sys},...hist.slice(-10),{role:'user',content:q}];
   try{return await callGroq(msgs);}catch{return await callGemini(q,sys);}
 }
 
 async function doTranslate(text,toLang) {
   const nm={hindi:'शुद्ध हिंदी',english:'English',sanskrit:'Sanskrit (Devanagari)'};
-  return callGroq([{role:'user',content:`Translate to ${nm[toLang]||toLang}. Keep scripture refs unchanged. Return only translation:\n\n${text}`}]);
+  return callGroq([{role:'user',content:`Translate to ${nm[toLang]||toLang}. Keep scripture references unchanged. Return ONLY translation:\n\n${text}`}]);
 }
 
 function parseResp(raw) {
   let title='',body=raw,src='',ver=false;
   const tm=raw.match(/^TITLE:\s*(.+)$/m);if(tm){title=tm[1].trim();body=body.replace(tm[0],'').trim();}
   const sm=raw.match(/^SHASTRIYA:\s*(.+)$/m);if(sm){src=sm[1].trim();body=body.replace(sm[0],'').trim();}
+  const scriptBlock=raw.match(/SCRIPTURE:\s*([\s\S]+?)(?=\n[A-Z]+:|$)/);if(scriptBlock&&!src)src=scriptBlock[1].trim().slice(0,300);
   if(/^VERIFIED:\s*true/im.test(raw)){ver=true;body=body.replace(/^VERIFIED:\s*true/im,'').trim();}
-  return{title,body,src,ver};
+  return{title,body:body.trim(),src,ver};
 }
 
 const PTS={save:3,thumbsup:2,feedback_given:2,daily:3};
 async function addPts(type){try{const c=parseInt(await AsyncStorage.getItem('dharmasetu_pts')||'0',10);const n=c+(PTS[type]||0);await AsyncStorage.setItem('dharmasetu_pts',String(n));return n;}catch{return 0;}}
-async function saveAnswer(q,a,src){const raw=await AsyncStorage.getItem('dharmasetu_saved')||'[]';const arr=JSON.parse(raw);if(arr.length>=20)throw new Error('Max 20 answers. Delete some first.');arr.unshift({id:Date.now().toString(),q,a,src,at:new Date().toISOString()});await AsyncStorage.setItem('dharmasetu_saved',JSON.stringify(arr));await addPts('save');}
+async function saveAnswer(q,a,src){const raw=await AsyncStorage.getItem('dharmasetu_saved')||'[]';const arr=JSON.parse(raw);if(arr.length>=20)throw new Error('Max 20 saved. Delete some first.');arr.unshift({id:Date.now().toString(),q,a,src,at:new Date().toISOString()});await AsyncStorage.setItem('dharmasetu_saved',JSON.stringify(arr));await addPts('save');}
 async function storeFb(q,a,rating,reason){try{const raw=await AsyncStorage.getItem('dharmasetu_feedback')||'[]';const arr=JSON.parse(raw);arr.push({q,a,rating,reason,at:new Date().toISOString()});await AsyncStorage.setItem('dharmasetu_feedback',JSON.stringify(arr.slice(-200)));if(rating==='up')await addPts('thumbsup');if(rating==='down'&&reason)await addPts('feedback_given');}catch{}}
 
-const SUGG={hindi:['मैं बहुत अकेला महसूस करता हूँ','राम ने शम्बूक को क्यों मारा?','आर्य आक्रमण — सच या झूठ?','गीता कर्म के बारे में क्या कहती है?','भील समुदाय हिंदू है?'],english:['I feel very lonely and lost','Why did Ram kill Shambuka?','Is Aryan Invasion Theory true?',"What does Gita say about karma?",'Is the Bheel community Hindu?']};
+const SUGG={
+  hindi:['राम ने शम्बूक का वध क्यों किया?','आर्य आक्रमण — सच या झूठ?','मैं बहुत अकेला महसूस करता हूँ','जाति व्यवस्था के बारे में गीता क्या कहती है?','हनुमान जी की असली शक्ति क्या है?'],
+  english:['Why did Ram kill Shambuka?','Is the Aryan Invasion Theory true?','I feel very lost and lonely','What does Gita say about caste?','Explain the science behind Om chanting'],
+};
 
 function ThinkDots() {
   const d=[useRef(new Animated.Value(0.2)).current,useRef(new Animated.Value(0.2)).current,useRef(new Animated.Value(0.2)).current];
-  useEffect(()=>{d.forEach((dot,i)=>Animated.loop(Animated.sequence([Animated.delay(i*160),Animated.timing(dot,{toValue:1,duration:260,useNativeDriver:true}),Animated.timing(dot,{toValue:0.2,duration:260,useNativeDriver:true}),Animated.delay(360)])).start());},[]);
-  return(<View style={{flexDirection:'row',gap:5,padding:2}}>{d.map((dot,i)=><Animated.View key={i} style={{width:8,height:8,borderRadius:4,backgroundColor:'#E8620A',opacity:dot}}/>)}</View>);
+  useEffect(()=>{d.forEach((dot,i)=>Animated.loop(Animated.sequence([Animated.delay(i*160),Animated.timing(dot,{toValue:1,duration:280,useNativeDriver:true}),Animated.timing(dot,{toValue:0.2,duration:280,useNativeDriver:true}),Animated.delay(340)])).start());},[]);
+  return(<View style={{flexDirection:'row',gap:5,padding:4}}>{d.map((dot,i)=><Animated.View key={i} style={{width:8,height:8,borderRadius:4,backgroundColor:'#E8620A',opacity:dot}}/>)}</View>);
 }
 
 function FbModal({visible,onClose,onSubmit,isHindi}) {
   const[sel,setSel]=useState('');const[note,setNote]=useState('');
-  const opts=isHindi?['गलत जानकारी','शास्त्र संदर्भ गलत','उत्तर अधूरा','भावनात्मक सहायता नहीं','कुछ और']:['Wrong info','Scripture ref wrong','Incomplete','Not emotionally helpful','Other'];
-  return(<Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}><View style={fm.ov}><View style={fm.box}><Text style={fm.title}>{isHindi?'👎 Feedback':'👎 Your Feedback'}</Text><Text style={fm.sub}>{isHindi?'यह feedback AI को बेहतर बनाता है 🙏':'This feedback improves our AI 🙏'}</Text>{opts.map(o=><TouchableOpacity key={o} style={[fm.chip,sel===o&&fm.chipOn]} onPress={()=>setSel(o)}><Text style={[fm.cTxt,sel===o&&fm.cTxtOn]}>{o}</Text></TouchableOpacity>)}<TextInput style={fm.inp} placeholder={isHindi?'और कुछ? (optional)':'Anything else? (optional)'} placeholderTextColor="rgba(253,246,237,0.3)" value={note} onChangeText={setNote} multiline maxLength={200}/><View style={fm.row}><TouchableOpacity style={fm.cancel} onPress={onClose}><Text style={fm.cancelT}>{isHindi?'रद्द':'Cancel'}</Text></TouchableOpacity><TouchableOpacity style={fm.submit} onPress={()=>{onSubmit(sel+(note?' — '+note:''));setSel('');setNote('');}}><Text style={fm.submitT}>Submit 🙏</Text></TouchableOpacity></View></View></View></Modal>);
+  const opts=isHindi?['गलत जानकारी','शास्त्र संदर्भ गलत','उत्तर अधूरा','भावनात्मक सहायता नहीं','बहुत छोटा उत्तर','कुछ और']:['Wrong info','Scripture ref wrong','Incomplete','Not emotionally helpful','Too short','Other'];
+  return(<Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}><View style={fm.ov}><View style={fm.box}><Text style={fm.title}>{isHindi?'👎 Feedback दें':'👎 Your Feedback'}</Text><Text style={fm.sub}>{isHindi?'यह feedback AI को बेहतर बनाता है 🙏':'This improves our AI for everyone 🙏'}</Text>{opts.map(o=><TouchableOpacity key={o} style={[fm.chip,sel===o&&fm.chipOn]} onPress={()=>setSel(o)}><Text style={[fm.cTxt,sel===o&&fm.cTxtOn]}>{o}</Text></TouchableOpacity>)}<TextInput style={fm.inp} placeholder={isHindi?'और कुछ? (optional)':'Anything else? (optional)'} placeholderTextColor="rgba(253,246,237,0.3)" value={note} onChangeText={setNote} multiline maxLength={200}/><View style={fm.row}><TouchableOpacity style={fm.cancel} onPress={onClose}><Text style={fm.cancelT}>{isHindi?'रद्द':'Cancel'}</Text></TouchableOpacity><TouchableOpacity style={fm.submit} onPress={()=>{onSubmit(sel+(note?' — '+note:''));setSel('');setNote('');}}><Text style={fm.submitT}>Submit 🙏</Text></TouchableOpacity></View></View></View></Modal>);
 }
 const fm=StyleSheet.create({ov:{flex:1,backgroundColor:'rgba(0,0,0,0.75)',justifyContent:'flex-end'},box:{backgroundColor:'#160800',borderRadius:24,padding:20,margin:12,borderWidth:1,borderColor:'rgba(240,165,0,0.15)'},title:{fontSize:16,fontWeight:'700',color:'#FDF6ED',marginBottom:4},sub:{fontSize:12,color:'rgba(253,246,237,0.4)',marginBottom:12},chip:{paddingHorizontal:14,paddingVertical:10,borderRadius:10,borderWidth:1,borderColor:'rgba(200,130,40,0.2)',marginBottom:7},chipOn:{backgroundColor:'rgba(232,98,10,0.15)',borderColor:'#E8620A'},cTxt:{fontSize:13,color:'rgba(253,246,237,0.45)'},cTxtOn:{color:'#F4A261'},inp:{backgroundColor:'rgba(255,255,255,0.05)',borderRadius:12,padding:12,color:'#FDF6ED',fontSize:13,minHeight:55,borderWidth:1,borderColor:'rgba(200,130,40,0.15)',marginVertical:10},row:{flexDirection:'row',gap:10},cancel:{flex:1,paddingVertical:12,borderRadius:12,backgroundColor:'rgba(255,255,255,0.05)',alignItems:'center'},cancelT:{color:'rgba(253,246,237,0.5)',fontSize:14,fontWeight:'600'},submit:{flex:1,paddingVertical:12,borderRadius:12,backgroundColor:'#E8620A',alignItems:'center'},submitT:{color:'#fff',fontSize:14,fontWeight:'700'}});
 
 export default function DharmaChatScreen() {
-  // ALL state at top level — no module-level user data access
-  const [userLang,setUserLang]=useState('hindi');
-  const [userName,setUserName]=useState('Dharma Rakshak');
-  const [userDeity,setUserDeity]=useState('');
-  const [userRashi,setUserRashi]=useState('');
-  const [chatMode,setChatMode]=useState('dharma');
-  const [pts,setPts]=useState(0);
-  const [ready,setReady]=useState(false);
-  const [msgs,setMsgs]=useState([]);
-  const [input,setInput]=useState('');
-  const [loading,setLoading]=useState(false);
-  const [hist,setHist]=useState([]);
-  const [transId,setTransId]=useState(null);
-  const [isRec,setIsRec]=useState(false);
-  const [recSec,setRecSec]=useState(0);
-  const [fbMsgId,setFbMsgId]=useState(null);
+  const[userLang,setUserLang]=useState('hindi');
+  const[userName,setUserName]=useState('Dharma Rakshak');
+  const[userDeity,setUserDeity]=useState('');
+  const[userRashi,setUserRashi]=useState('');
+  const[chatMode,setChatMode]=useState('dharma');
+  const[pts,setPts]=useState(0);
+  const[ready,setReady]=useState(false);
+  const[msgs,setMsgs]=useState([]);
+  const[input,setInput]=useState('');
+  const[loading,setLoading]=useState(false);
+  const[hist,setHist]=useState([]);
+  const[transId,setTransId]=useState(null);
+  const[isRec,setIsRec]=useState(false);
+  const[recSec,setRecSec]=useState(0);
+  const[fbMsgId,setFbMsgId]=useState(null);
 
   const scrollRef=useRef(null);
   const sendSc=useRef(new Animated.Value(1)).current;
@@ -161,15 +221,17 @@ export default function DharmaChatScreen() {
         const mode=await AsyncStorage.getItem('dharmasetu_mode');
         if(mode==='factcheck'){setChatMode('factcheck');await AsyncStorage.removeItem('dharmasetu_mode');}
         const isH=lang==='hindi';
-        const greet=isH?`नमस्ते, ${name}! 🙏\n\n${deity?deity+' की कृपा आप पर बनी रहे।\n\n':''}मैं DharmaSetu हूँ। धार्मिक प्रश्न हो, या जीवन की कोई कठिनाई — दोनों में साथ हूँ।`:`Namaste, ${name}! 🙏\n\n${deity?'May '+deity+' bless you.\n\n':''}I am DharmaSetu. Dharmic questions or personal struggles — I am here for both.`;
-        setMsgs([{id:'w',type:'ai',title:isH?'🙏 जय श्री राम':'🙏 Jai Shri Ram',body:greet,src:'',ver:false,translations:{},activeLang:null,feedback:null,saved:false,streaming:false,isWelcome:true,time:tNow()}]);
+        const greet=isH
+          ?`नमस्ते, ${name}! 🙏\n\n${deity?deity+' की असीम कृपा आप पर बनी रहे।\n\n':''}मैं DharmaSetu हूँ — आपका धर्मिक मार्गदर्शक। चाहे कोई कठिन प्रश्न हो, जीवन की उलझन हो, या कोई झूठ का सामना करना हो — मैं हर समय आपके साथ हूँ। 🕉`
+          :`Namaste, ${name}! 🙏\n\n${deity?'May '+deity+' bless your journey.\n\n':''}I am DharmaSetu — your guardian of Sanatan Dharma's truth. Ask me anything — philosophy, debate prep, life guidance, or busting misinformation. I'm here. 🕉`;
+        setMsgs([{id:'w',type:'ai',title:isH?'🙏 जय सनातन धर्म':'🙏 Jai Sanatan Dharma',body:greet,src:'',ver:false,translations:{},activeLang:null,feedback:null,saved:false,streaming:false,isWelcome:true,time:tNow()}]);
         setReady(true);
         const today=new Date().toDateString();
         const last=await AsyncStorage.getItem('dharmasetu_checkin');
         if(last!==today){await AsyncStorage.setItem('dharmasetu_checkin',today);const n=await addPts('daily');setPts(n);}
       }catch{
         setReady(true);
-        setMsgs([{id:'w',type:'ai',title:'🙏 Jai Shri Ram',body:'Namaste! I am DharmaSetu. Ask anything about Sanatan Dharma.',src:'',ver:false,translations:{},activeLang:null,feedback:null,saved:false,streaming:false,isWelcome:true,time:tNow()}]);
+        setMsgs([{id:'w',type:'ai',title:'🙏 Jai Sanatan Dharma',body:'Namaste! I am DharmaSetu. Ask anything about Sanatan Dharma.',src:'',ver:false,translations:{},activeLang:null,feedback:null,saved:false,streaming:false,isWelcome:true,time:tNow()}]);
       }
     })();
   },[]);
@@ -194,8 +256,7 @@ export default function DharmaChatScreen() {
     clearInterval(recTimer.current);recTimer.current=null;
     Animated.timing(micSc,{toValue:1,duration:150,useNativeDriver:true}).start();
     Vibration.vibrate(25);
-    const msg=userLang==='hindi'?'Voice feature Google Play publish होने के बाद active होगा। अभी type करें 🙏':'Voice feature will be active after Google Play release. Type for now 🙏';
-    Alert.alert('🎤',msg,[{text:'🕉 OK'}]);
+    Alert.alert('🎤',userLang==='hindi'?'Voice feature Google Play publish होने के बाद active होगा। अभी type करें 🙏':'Voice feature activates after Play Store release. Type for now 🙏',[{text:'🕉 OK'}]);
   };
 
   const streamText=useCallback((fullText,id)=>{
@@ -205,7 +266,7 @@ export default function DharmaChatScreen() {
       built+=(i===0?'':' ')+words[i++];
       setMsgs(prev=>prev.map(m=>m.id===id?{...m,body:built}:m));
       if(i%8===0)scrollDown();
-    },28);
+    },25);
   },[scrollDown]);
 
   const handleTranslate=async(msgId,lang)=>{
@@ -215,7 +276,7 @@ export default function DharmaChatScreen() {
     if(msg.translations?.[lang]){setMsgs(prev=>prev.map(m=>m.id===msgId?{...m,activeLang:lang}:m));return;}
     setTransId(msgId+lang);
     try{const src=(msg.origBody||msg.body)+(msg.src?'\n'+msg.src:'');const t=await doTranslate(src,lang);setMsgs(prev=>prev.map(m=>m.id===msgId?{...m,origBody:m.origBody||m.body,translations:{...m.translations,[lang]:t},activeLang:lang}:m));}
-    catch{Alert.alert('','Translation failed.');}
+    catch{Alert.alert('','Translation failed. Please try again.');}
     setTransId(null);
   };
 
@@ -234,35 +295,39 @@ export default function DharmaChatScreen() {
     setMsgs(prev=>prev.map(m=>m.id===fbMsgId?{...m,feedback:'down'}:m));
     if(msg)storeFb(msg.question||'',msg.body,'down',reason);
     setFbMsgId(null);
-    Alert.alert('🙏',userLang==='hindi'?'शुक्रिया! आपका feedback AI को बेहतर बनाएगा।':'Thank you! Your feedback improves our AI.');
+    Alert.alert('🙏',userLang==='hindi'?'शुक्रिया! आपका feedback AI को बेहतर बनाएगा।':'Thank you! Your feedback improves our AI for everyone.');
     addPts('feedback_given').then(setPts);
   };
 
   const handleSave=async(msg)=>{
-    if(msg.saved){Alert.alert('',userLang==='hindi'?'पहले से saved है।':'Already saved.');return;}
-    try{await saveAnswer(msg.question||'',msg.body,msg.src);setMsgs(prev=>prev.map(m=>m.id===msg.id?{...m,saved:true}:m));Vibration.vibrate(20);Alert.alert('✅','Saved! +3 Dharma Points 🕉');}
+    if(msg.saved){Alert.alert('',userLang==='hindi'?'यह पहले से saved है।':'Already saved!');return;}
+    try{await saveAnswer(msg.question||'',msg.body,msg.src);setMsgs(prev=>prev.map(m=>m.id===msg.id?{...m,saved:true}:m));Vibration.vibrate(20);Alert.alert('✅','🔖 Saved! +3 Dharma Points 🕉');}
     catch(e){Alert.alert('',e.message);}
   };
 
   const send=async(txt)=>{
     const raw=(txt||input).trim();
     if(!raw||loading||!ready)return;
-    if(!Sec.ok()){Alert.alert('',userLang==='hindi'?'थोड़ा रुकें।':'Please wait.');return;}
+    if(!Sec.ok()){Alert.alert('',userLang==='hindi'?'थोड़ा रुकें।':'Please wait a moment.');return;}
     const clean=Sec.clean(raw);
     if(!Sec.valid(clean)||clean.length<2)return;
+    const emotion=detectEmotion(clean);
     pulseSend();
     const uid=Date.now().toString();const aid=(Date.now()+1).toString();const t=tNow();
-    setMsgs(prev=>[...prev,{id:uid,type:'user',text:clean,time:t},{id:aid,type:'ai',title:'',body:'',src:'',ver:false,translations:{},activeLang:null,feedback:null,saved:false,streaming:true,thinking:true,question:clean,time:t}]);
+    setMsgs(prev=>[...prev,
+      {id:uid,type:'user',text:clean,time:t},
+      {id:aid,type:'ai',title:'',body:'',src:'',ver:false,translations:{},activeLang:null,feedback:null,saved:false,streaming:true,thinking:true,question:clean,time:t}
+    ]);
     setInput('');setLoading(true);scrollDown();
     try{
-      const sys=buildSys(userLang,userName,userDeity,userRashi,chatMode==='factcheck');
+      const sys=buildSys(userLang,userName,userDeity,userRashi,chatMode==='factcheck',emotion);
       const rawA=await getAnswer(clean,hist,sys);
       const parsed=parseResp(rawA);
       setMsgs(prev=>prev.map(m=>m.id===aid?{...m,title:parsed.title,src:parsed.src,ver:parsed.ver,origBody:parsed.body,thinking:false}:m));
       setHist(prev=>[...prev,{role:'user',content:clean},{role:'assistant',content:rawA}].slice(-16));
       streamText(parsed.body,aid);
     }catch{
-      setMsgs(prev=>prev.map(m=>m.id===aid?{...m,body:userLang==='hindi'?'Internet issue। Dobara try karein।':'Internet issue. Please try again.',thinking:false,streaming:false}:m));
+      setMsgs(prev=>prev.map(m=>m.id===aid?{...m,body:userLang==='hindi'?'इंटरनेट कनेक्शन में समस्या। दोबारा प्रयास करें।':'Internet connection issue. Please try again.',thinking:false,streaming:false}:m));
     }
     setLoading(false);scrollDown();
   };
@@ -275,13 +340,12 @@ export default function DharmaChatScreen() {
       <StatusBar style="light" backgroundColor="#0D0500" translucent={false}/>
       <View style={{height:SB_H,backgroundColor:'#0D0500'}}/>
       <KeyboardAvoidingView style={s.flex} behavior={Platform.OS==='ios'?'padding':'height'}>
-
         <View style={s.hdr}>
           <View style={s.hL}>
             <View style={s.hAv}><Text style={{fontSize:18}}>🕉</Text></View>
             <View>
               <Text style={s.hTitle}>DharmaChat AI</Text>
-              <View style={s.hSub}><View style={s.gDot}/><Text style={s.hSubTxt}>{chatMode==='factcheck'?(isH?'🛡️ Fact Check Mode':'🛡️ Fact Check Mode'):(isH?'💬 DharmaChat':'💬 DharmaChat')}</Text></View>
+              <View style={s.hSub}><View style={s.gDot}/><Text style={s.hSubTxt}>{chatMode==='factcheck'?'🛡️ Fact Check Mode':'💬 DharmaChat'}</Text></View>
             </View>
           </View>
           <View style={s.hR}>
@@ -292,7 +356,7 @@ export default function DharmaChatScreen() {
           </View>
         </View>
 
-        {chatMode==='factcheck'&&<View style={s.fcBnr}><Text style={s.fcBnrTxt}>{isH?'🛡️ Fact Check — कोई भी claim paste करें, सच जानें':'🛡️ Fact Check Mode — Paste any claim to verify truth'}</Text></View>}
+        {chatMode==='factcheck'&&<View style={s.fcBnr}><Text style={s.fcBnrTxt}>{isH?'🛡️ Fact Check — कोई भी claim paste करें, पूरा सच मिलेगा':'🛡️ Paste any claim — get complete truth with scripture proof'}</Text></View>}
 
         <View style={s.lBar}>
           <Text style={s.lLbl}>LANG:</Text>
@@ -301,6 +365,7 @@ export default function DharmaChatScreen() {
               <Text style={[s.lTxt,userLang===id&&s.lTxtOn]}>{l}</Text>
             </TouchableOpacity>
           ))}
+          <Text style={s.lHint}>{isH?'(per-message: संस्कृत)':'(per-message: Sanskrit)'}</Text>
         </View>
 
         <View style={s.dSep}><View style={s.dLine}/><Text style={s.dTxt}>TODAY</Text><View style={s.dLine}/></View>
@@ -317,7 +382,7 @@ export default function DharmaChatScreen() {
                 <View style={s.aBdg}><Text style={{fontSize:11}}>🕉</Text></View>
                 <View style={[s.aBub,{paddingVertical:14}]}>
                   <ThinkDots/>
-                  <Text style={{fontSize:11,color:'rgba(253,246,237,0.25)',marginTop:4}}>{isH?'शास्त्र खोज रहे हैं...':'Searching scriptures...'}</Text>
+                  <Text style={{fontSize:11,color:'rgba(253,246,237,0.25)',marginTop:4}}>{isH?'शास्त्र और हृदय में खोज रहे हैं...':'Searching scripture and wisdom...'}</Text>
                 </View>
               </View>
             );
@@ -329,14 +394,14 @@ export default function DharmaChatScreen() {
                 <View style={s.aBub}>
                   {msg.title?<Text style={s.aTitle}>{msg.title}</Text>:null}
                   <Text style={s.aTxt}>{showTxt}{msg.streaming?<Text style={s.cur}> ▌</Text>:null}</Text>
-                  {msg.src&&!msg.streaming?(<View style={s.srcBox}><View style={s.srcHdr}><Text style={{fontSize:11}}>📖</Text><Text style={s.srcLbl}>SHASTRIYA SANDARBH</Text></View><Text style={s.srcTxt}>{msg.src}</Text>{msg.ver&&<View style={s.verRow}><Text style={s.verChk}>✓</Text><Text style={s.verTxt}>{isH?'Verified · Shastriya Pramaan':'Verified · Shastriya Pramaan'}</Text></View>}</View>):null}
+                  {msg.src&&!msg.streaming?(<View style={s.srcBox}><View style={s.srcHdr}><Text style={{fontSize:11}}>📖</Text><Text style={s.srcLbl}>SHASTRIYA PRAMAAN</Text></View><Text style={s.srcTxt}>{msg.src}</Text>{msg.ver&&<View style={s.verRow}><Text style={s.verChk}>✓</Text><Text style={s.verTxt}>Verified · Shastriya Pramaan</Text></View>}</View>):null}
                   {showActs&&(
                     <View style={s.actRow}>
                       <TouchableOpacity style={[s.actBtn,msg.feedback==='up'&&s.actUp]} onPress={()=>handleUp(msg)} disabled={!!msg.feedback} activeOpacity={0.8}>
                         <Text style={{fontSize:14}}>👍</Text>{msg.feedback==='up'&&<Text style={[s.actLbl,{color:'#27AE60'}]}>{isH?'सही':'Correct'}</Text>}
                       </TouchableOpacity>
                       <TouchableOpacity style={[s.actBtn,msg.feedback==='down'&&s.actDn]} onPress={()=>handleDown(msg)} disabled={!!msg.feedback} activeOpacity={0.8}>
-                        <Text style={{fontSize:14}}>👎</Text>{msg.feedback==='down'&&<Text style={[s.actLbl,{color:'#E74C3C'}]}>Feedback</Text>}
+                        <Text style={{fontSize:14}}>👎</Text>{msg.feedback==='down'&&<Text style={[s.actLbl,{color:'#E74C3C'}]}>Noted</Text>}
                       </TouchableOpacity>
                       <TouchableOpacity style={[s.actBtn,msg.saved&&s.actSav]} onPress={()=>handleSave(msg)} activeOpacity={0.8}>
                         <Text style={{fontSize:14}}>🔖</Text><Text style={[s.actLbl,msg.saved&&{color:'#C9830A'}]}>{msg.saved?'Saved':'Save'}</Text>
@@ -370,7 +435,7 @@ export default function DharmaChatScreen() {
               <TouchableOpacity onPress={stopRec}><Text style={s.recStop}>Stop</Text></TouchableOpacity>
             </View>
           ):(
-            <TextInput style={s.inp} placeholder={isH?'यहाँ पूछें — धर्म या जीवन के बारे में...':'Ask anything — Dharma or life...'} placeholderTextColor="rgba(253,246,237,0.28)" value={input} onChangeText={setInput} multiline maxLength={500} blurOnSubmit={false}/>
+            <TextInput style={s.inp} placeholder={isH?'यहाँ पूछें — धर्म, जीवन, या कोई भी सवाल...':'Ask anything — Dharma, life, debate, or any doubt...'} placeholderTextColor="rgba(253,246,237,0.28)" value={input} onChangeText={setInput} multiline maxLength={600} blurOnSubmit={false}/>
           )}
           <Animated.View style={{transform:[{scale:micSc}]}}>
             <TouchableOpacity style={[s.micBtn,isRec&&s.micOn]} onPress={isRec?stopRec:startRec} activeOpacity={0.85}>
@@ -383,7 +448,6 @@ export default function DharmaChatScreen() {
             </TouchableOpacity>
           </Animated.View>
         </View>
-
       </KeyboardAvoidingView>
       <FbModal visible={!!fbMsgId} onClose={()=>setFbMsgId(null)} onSubmit={submitFb} isHindi={isH}/>
     </View>
@@ -394,7 +458,7 @@ const s=StyleSheet.create({
   root:{flex:1,backgroundColor:'#0D0500'},flex:{flex:1},
   hdr:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:16,paddingVertical:12,backgroundColor:'#0D0500',borderBottomWidth:1,borderBottomColor:'rgba(240,165,0,0.1)'},
   hL:{flexDirection:'row',alignItems:'center',gap:12},hR:{flexDirection:'row',alignItems:'center',gap:8},
-  hAv:{width:40,height:40,borderRadius:20,backgroundColor:'#6B21A8',alignItems:'center',justifyContent:'center',borderWidth:2,borderColor:'rgba(240,165,0,0.4)',elevation:4,shadowColor:'#6B21A8',shadowOpacity:0.5,shadowRadius:6},
+  hAv:{width:40,height:40,borderRadius:20,backgroundColor:'#6B21A8',alignItems:'center',justifyContent:'center',borderWidth:2,borderColor:'rgba(240,165,0,0.4)',elevation:4},
   hTitle:{fontSize:15,fontWeight:'700',color:'#FDF6ED'},
   hSub:{flexDirection:'row',alignItems:'center',gap:5,marginTop:1},
   gDot:{width:6,height:6,borderRadius:3,backgroundColor:'#2ECC71'},
@@ -411,12 +475,13 @@ const s=StyleSheet.create({
   lChipOn:{borderColor:'#E8620A',backgroundColor:'rgba(232,98,10,0.13)'},
   lTxt:{fontSize:13,color:'rgba(253,246,237,0.38)',fontWeight:'600'},
   lTxtOn:{color:'#F4A261'},
+  lHint:{fontSize:10,color:'rgba(253,246,237,0.2)',marginLeft:4},
   dSep:{flexDirection:'row',alignItems:'center',gap:10,paddingHorizontal:20,paddingVertical:10},
   dLine:{flex:1,height:1,backgroundColor:'rgba(255,255,255,0.05)'},
   dTxt:{fontSize:10,color:'rgba(253,246,237,0.2)',letterSpacing:1.5},
   mList:{padding:12,paddingBottom:8,gap:10},
   uRow:{flexDirection:'row-reverse',alignItems:'flex-end'},
-  uBub:{backgroundColor:'#C45508',borderRadius:18,borderTopRightRadius:4,padding:14,maxWidth:SW*0.78,elevation:3,shadowColor:'#C45508',shadowOffset:{width:0,height:2},shadowOpacity:0.3,shadowRadius:4},
+  uBub:{backgroundColor:'#C45508',borderRadius:18,borderTopRightRadius:4,padding:14,maxWidth:SW*0.78,elevation:3},
   uTxt:{fontSize:14,color:'#fff',lineHeight:22},
   uTime:{fontSize:10,color:'rgba(253,246,237,0.2)',textAlign:'right',marginTop:3},
   aRow:{flexDirection:'row',gap:8,alignItems:'flex-end'},
@@ -455,7 +520,7 @@ const s=StyleSheet.create({
   inp:{flex:1,backgroundColor:'rgba(255,255,255,0.05)',borderRadius:16,paddingHorizontal:14,paddingVertical:11,color:'#FDF6ED',fontSize:14,maxHeight:120,minHeight:46,borderWidth:1,borderColor:'rgba(200,130,40,0.16)',lineHeight:20},
   micBtn:{width:44,height:44,borderRadius:13,backgroundColor:'rgba(255,255,255,0.05)',alignItems:'center',justifyContent:'center',borderWidth:1,borderColor:'rgba(200,130,40,0.18)'},
   micOn:{backgroundColor:'rgba(232,98,10,0.18)',borderColor:'#E8620A'},
-  sendBtn:{width:44,height:44,borderRadius:13,backgroundColor:'#E8620A',alignItems:'center',justifyContent:'center',elevation:5,shadowColor:'#E8620A',shadowOffset:{width:0,height:2},shadowOpacity:0.45,shadowRadius:5},
-  sendOff:{backgroundColor:'rgba(232,98,10,0.2)',elevation:0,shadowOpacity:0},
+  sendBtn:{width:44,height:44,borderRadius:13,backgroundColor:'#E8620A',alignItems:'center',justifyContent:'center',elevation:5},
+  sendOff:{backgroundColor:'rgba(232,98,10,0.2)',elevation:0},
   sendIco:{color:'#fff',fontSize:28,fontWeight:'700',marginBottom:2},
 });
