@@ -43,6 +43,19 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "e9c89452-5820-4e35-9e5f-21ec244af832"
+      }
+    },
+    "owner": "ankits-dev",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/e9c89452-5820-4e35-9e5f-21ec244af832"
     }
   }
 }

@@ -1,209 +1,304 @@
 // ════════════════════════════════════════════════════════
-// DharmaSetu — DharmaChat AI Screen
-// FIXED: No SB_H, uses useSafeAreaInsets()
-// NEW: Share button on every AI answer
-// AI GUARD: Only answers Dharma/Hindu questions
+// DharmaSetu — DharmaChat AI
+// APIs: Groq (primary) → Gemini (backup) → Anthropic (tertiary)
+// Full language support — Hindi, English, Regional
 // ════════════════════════════════════════════════════════
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  Dimensions,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  Share,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  Vibration,
-  View
+  ActivityIndicator, Alert, Animated, Dimensions,
+  KeyboardAvoidingView, Modal, Platform, ScrollView,
+  Share, StyleSheet, Text, TextInput, TouchableOpacity,
+  Vibration, View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SW } = Dimensions.get('window');
 
+// ─── ALL 3 API KEYS ───────────────────────────────────────
+const GROQ_KEY      = 'gsk_Mrz5mjNdV.....';
+const ANTHROPIC_KEY = 'sk-ant-api03-....-pr8HDAXFjv1QJHqVIn2MqcIWZGwb_4FJGRMaGpMId0QGb5xSQ-oW-2ZwAA';
+const GEM_KEY       = 'AIzaSyB_....._BgdWUmLzGE';
+
+// ─── RATE LIMITER ─────────────────────────────────────────
 const Sec = {
   reqs: [],
-  ok() { const n = Date.now(); this.reqs = this.reqs.filter(t => n - t < 60000); if (this.reqs.length >= 20) return false; this.reqs.push(n); return true; },
-  clean(t) { return t.replace(/<[^>]*>/g, '').replace(/[<>"'%;()&+\\]/g, '').trim().slice(0, 500); },
-  valid(t) { return ![/ignore\s+previous/i, /system\s+prompt/i, /jailbreak/i, /pretend.*be/i, /you\s+are\s+now/i].some(p => p.test(t)); }
+  ok() {
+    const n = Date.now();
+    this.reqs = this.reqs.filter(t => n - t < 60000);
+    if (this.reqs.length >= 20) return false;
+    this.reqs.push(n); return true;
+  },
+  clean(t) { return t.replace(/<[^>]*>/g, '').replace(/[<>"';()&+\\]/g, '').trim().slice(0, 500); },
+  valid(t) { return ![/ignore\s+previous/i, /system\s+prompt/i, /jailbreak/i, /pretend.*be/i].some(p => p.test(t)); }
 };
 
-const GROQ_KEY = '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';
-const GEM_KEY = 'AIzaSyDyRn42EYd5pvf3pwKvZqSb5YwLbL6Zi8Q';
-
 // ════════════════════════════════════════════════════════
-// AI SYSTEM PROMPT — Only Dharma topics
+// API CALLS — Groq → Gemini → Anthropic
 // ════════════════════════════════════════════════════════
-function buildSys(lang, name, deity, rashi, isFC) {
-  const LANG_RULES = {
-    hindi: 'ONLY शुद्ध हिंदी (Devanagari). शून्य English, शून्य Hinglish.',
-    english: 'ONLY pure English. Zero Hindi. Zero Hinglish.',
-    marathi: 'ONLY मराठी.', bengali: 'ONLY বাংলা।', tamil: 'ONLY தமிழ்.',
-    telugu: 'ONLY తెలుగు.', kannada: 'ONLY ಕನ್ನಡ.', gujarati: 'ONLY ગુજરાતી.',
-    punjabi: 'ONLY ਪੰਜਾਬੀ.', urdu: 'ONLY اردو.',
-  };
-  const fcBlock = isFC ? `\nFACT CHECK MODE: Respond with VERDICT: [TRUE/FALSE/MISLEADING/MISATTRIBUTED] then full truth with scripture evidence.\n` : '';
-  return `You are DharmaSetu — guardian of Sanatan Dharma. Bold, compassionate, precise.
-
-LANGUAGE LAW — ABSOLUTE: ${LANG_RULES[lang] || LANG_RULES.hindi}
-Exception: Sanskrit quotes in Devanagari, then translate.
-
-USER: ${name || 'Dharma Rakshak'} | Rashi: ${rashi || '—'} | Deity: ${deity || '—'}
-${fcBlock}
-
-TOPIC GUARD — CRITICAL:
-You ONLY answer questions about:
-- Sanatan Dharma, Hinduism, Hindu scriptures
-- Vedas, Upanishads, Bhagavad Gita, Ramayana, Mahabharata, Puranas
-- Hindu gods, goddesses, rituals, festivals, mantras
-- Dharmic philosophy, spirituality, karma, moksha
-- Historical facts about Hindu civilization
-- Misinformation about Hinduism (fact-checking)
-- Personal struggles — answer with Dharmic wisdom
-
-If someone asks about technology, coding, politics (unrelated), other religions (critically), movies, sports, or anything NOT related to Dharma/spirituality/Hindu civilization:
-Respond ONLY: "DharmaSetu is here for Sanatan Dharma guidance. Please ask about Hindu scriptures, philosophy, mantras, or spiritual guidance. 🙏"
-
-EMOTIONAL CARE: Personal pain → empathy first, then Dharmic wisdom tied to their specific situation and deity.
-
-SCRIPTURE FORMAT: "श्लोक..." (Source, Ch.Verse) → [translation]
-
-SHAMBUKA TRUTH (all 3 sources):
-1) Valmiki Ramayana Uttara Kanda 74-76: Tapasya caused cosmic imbalance. Brahmin child died. Ram acted as rajadharma — not personal hatred.
-2) Padma+Skanda Purana: Shambuka was rakshasa in previous birth. Tapasya was tamasic — for supernatural power, not moksha.
-3) RESULT: Devatas showered flowers. Brahmin child revived. Shambuka got MOKSHA. Divine grace, not caste punishment. Colonial "oppression" narrative = 19th century fabrication.
-
-ARYAN INVASION: Demolished — Rakhigarhi DNA 2019 (Science journal). Genetic continuity proved. AIT = colonial divide-and-rule.
-KRISHNA: Jara hunter's arrow (Mahabharata, Mausala Parva 2-3). Krishna's own leela.
-BHEEL: Bhil King Guha = Ram's closest friend (Ramayana, Ayodhya Kanda 1-4). Birsa Munda built Shiva+Vishnu temples.
-CASTE: Gita 4.13 — Varna by GUNA+KARMA not birth. British 1871 Census rigidified caste artificially.
-
-RESPONSE FORMAT:
-TITLE: [emoji] [4-6 words in user's language]
-[Answer — flowing, warm, no headers]
-SHASTRIYA: [exact refs]
-VERIFIED: true
-
-RULES: Pure language only · Sanskrit quotes · Complete truth · Never fabricate · Under 300 words`;
-}
-
-async function callGroq(msgs) {
-  const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+async function callGroq(messages, systemPrompt) {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + GROQ_KEY },
-    body: JSON.stringify({ model: 'llama-3.3-70b-versatile', messages: msgs, temperature: 0.75, max_tokens: 1024 })
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROQ_KEY}` },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [{ role: 'system', content: systemPrompt }, ...messages],
+      temperature: 0.75,
+      max_tokens: 1024,
+    })
   });
-  const d = await r.json();
-  if (d.error) throw new Error(d.error.message);
-  return d.choices[0].message.content;
+  if (!res.ok) { const e = await res.text(); throw new Error(`Groq ${res.status}: ${e}`); }
+  const d = await res.json();
+  const text = d?.choices?.[0]?.message?.content;
+  if (text) return text;
+  throw new Error('Groq: empty response');
 }
 
-async function callGemini(q, sys) {
-  const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + GEM_KEY, {
+async function callGemini(fullPrompt) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${GEM_KEY}`;
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: sys + '\n\nUser: ' + q }] }], generationConfig: { temperature: 0.75, maxOutputTokens: 1024 } })
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: fullPrompt }] }],
+      generationConfig: { temperature: 0.75, maxOutputTokens: 1024 },
+      safetySettings: [
+        { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_NONE' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_NONE' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+      ]
+    })
   });
-  const d = await r.json();
-  if (d.error) throw new Error(d.error.message);
-  return d.candidates[0].content.parts[0].text;
+  if (!res.ok) { const e = await res.text(); throw new Error(`Gemini ${res.status}: ${e}`); }
+  const d = await res.json();
+  const text = d?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (text) return text;
+  throw new Error('Gemini: empty response');
 }
 
-async function getAnswer(q, hist, sys) {
-  const msgs = [{ role: 'system', content: sys }, ...hist.slice(-8), { role: 'user', content: q }];
-  try { return await callGroq(msgs); } catch { return await callGemini(q, sys); }
+async function callAnthropic(messages, systemPrompt) {
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-3-haiku-20240307',
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: messages,
+    })
+  });
+  if (!res.ok) { const e = await res.text(); throw new Error(`Anthropic ${res.status}: ${e}`); }
+  const d = await res.json();
+  const text = d?.content?.[0]?.text;
+  if (text) return text;
+  throw new Error('Anthropic: empty response');
 }
 
-async function doTranslate(text, toLang) {
-  const nm = { hindi: 'शुद्ध हिंदी', english: 'English', sanskrit: 'Sanskrit (Devanagari)' };
-  return callGroq([{ role: 'user', content: `Translate to ${nm[toLang] || toLang}. Keep scripture refs unchanged. Return only translation:\n\n${text}` }]);
+// ─── MASTER AI CALL with fallback chain ───────────────────
+async function getAI(messages, systemPrompt) {
+  // 1. Try Groq first (fastest, free)
+  try {
+    console.log('Trying Groq...');
+    return await callGroq(messages, systemPrompt);
+  } catch (e1) {
+    console.log('Groq failed:', e1.message);
+  }
+  // 2. Try Gemini (build full prompt for Gemini)
+  try {
+    console.log('Trying Gemini...');
+    const histText = messages.slice(-4).map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n');
+    const lastQ = messages[messages.length - 1]?.content || '';
+    const fullPrompt = `${systemPrompt}\n\n${histText ? `Previous conversation:\n${histText}\n\n` : ''}Current question: ${lastQ}\n\nReply:`;
+    return await callGemini(fullPrompt);
+  } catch (e2) {
+    console.log('Gemini failed:', e2.message);
+  }
+  // 3. Try Anthropic as last resort
+  try {
+    console.log('Trying Anthropic...');
+    return await callAnthropic(messages, systemPrompt);
+  } catch (e3) {
+    console.log('Anthropic failed:', e3.message);
+    throw new Error('ALL_APIS_FAILED');
+  }
+}
+
+// ════════════════════════════════════════════════════════
+// LANGUAGE CONFIG
+// ════════════════════════════════════════════════════════
+const LANG_INSTRUCTION = {
+  hindi:    'तुम्हें केवल और केवल शुद्ध हिंदी में जवाब देना है। एक भी अंग्रेजी शब्द नहीं। Sanskrit शब्द Devanagari में लिखो।',
+  english:  'Reply ONLY in pure English. No Hindi, no Hinglish.',
+  marathi:  'फक्त मराठीत उत्तर द्या. एकही इंग्रजी शब्द नाही.',
+  gujarati: 'ફક્ત ગુજરાતીમાં જ જવાબ આપો. એક પણ અંગ્રેજી શબ્દ નહીં.',
+  bengali:  'শুধুমাত্র বাংলায় উত্তর দিন। কোনো ইংরেজি শব্দ নয়।',
+  tamil:    'தமிழில் மட்டுமே பதிலளியுங்கள். ஆங்கில வார்த்தைகள் வேண்டாம்.',
+  telugu:   'తెలుగులో మాత్రమే సమాధానం ఇవ్వండి. ఆంగ్ల పదాలు వేడదు.',
+  kannada:  'ಕನ್ನಡದಲ್ಲಿ ಮಾತ್ರ ಉತ್ತರಿಸಿ. ಯಾವುದೇ ಇಂಗ್ಲಿಷ್ ಶಬ್ದ ಬೇಡ.',
+  punjabi:  'ਸਿਰਫ਼ ਪੰਜਾਬੀ ਵਿੱਚ ਜਵਾਬ ਦਿਓ। ਕੋਈ ਅੰਗਰੇਜ਼ੀ ਸ਼ਬਦ ਨਹੀਂ।',
+  urdu:     'صرف اردو میں جواب دیں۔ کوئی انگریزی لفظ نہیں۔',
+  odia:     'କେବଳ ଓଡ଼ିଆରେ ଉତ୍ତର ଦିଅ। କୌଣସି ଇଂରାଜୀ ଶବ୍ଦ ନାହିଁ।',
+};
+
+function buildSystemPrompt(lang, name, deity, rashi, nakshatra, isFC) {
+  const langRule = LANG_INSTRUCTION[lang] || LANG_INSTRUCTION.english;
+  const fcLine = isFC ? '\n⚡ FACT CHECK MODE: Start with "VERDICT: TRUE/FALSE/MISLEADING" then prove with scripture.\n' : '';
+
+  return `तुम DharmaSetu हो — एक expert Vedic guide जो Jyotishacharya, Vedic scholar और spiritual mentor का combination है।
+
+🌐 LANGUAGE LAW (सबसे ज़रूरी नियम):
+${langRule}
+Sanskrit quotes Devanagari में लिखो, फिर उनका अनुवाद भी उसी भाषा में दो।
+${fcLine}
+👤 USER INFO: नाम=${name} | राशि=${rashi || 'अज्ञात'} | नक्षत्र=${nakshatra || 'अज्ञात'} | इष्ट देव=${deity || 'अज्ञात'}
+
+🎯 EXPERTISE:
+1. JYOTISH EXPERT: जब user personal problems पूछे (शादी में देरी, career, health, relationship) — real Jyotishacharya की तरह answer दो:
+   - उनकी Rashi/Nakshatra based analysis
+   - Specific time periods (कौन से साल favorable हैं)
+   - किस direction में job/spouse ढूंढें
+   - Specific remedies: mantra, ratna, व्रत, दान
+
+2. SCRIPTURE EXPERT: Related shlokas quote करो with translation
+
+3. TOPIC BOUNDARY: केवल इन विषयों पर answer दो:
+   - सनातन धर्म, हिंदू दर्शन, आध्यात्मिकता
+   - वेद, उपनिषद, गीता, रामायण, महाभारत, पुराण
+   - देवी-देवता, मंत्र, पूजा, त्योहार
+   - वैदिक ज्योतिष (Jyotish)
+   - Hindu civilization के historical facts
+   - Hinduism के बारे में misinformation का fact-check
+   - Personal problems — Dharmic + Jyotish wisdom से
+
+   बाकी सब topics के लिए बोलो: "DharmaSetu केवल सनातन धर्म के लिए है 🙏"
+
+⚠️ CRITICAL FACTS (कभी गलती मत करो):
+- शम्बूक को मोक्ष मिला — जाति दंड नहीं था। Colonial lie है।
+- Aryan Invasion Theory: Rakhigarhi DNA 2019 से completely false साबित हुआ।
+- भील समुदाय: गहरे Hindu हैं। राजा गुह (भील) Ram के सबसे प्रिय मित्र थे।
+- गीता 4.13: वर्ण = गुण + कर्म, जन्म से नहीं।
+
+📝 RESPONSE FORMAT:
+TITLE: [emoji + 5-7 शब्द का title उसी भाषा में]
+[Answer — warm, detailed, specific। Max 350 words।]
+SHASTRIYA: [scripture references]
+VERIFIED: true`;
 }
 
 function parseResp(raw) {
-  let title = '', body = raw, src = '', ver = false;
-  const tm = raw.match(/^TITLE:\s*(.+)$/m); if (tm) { title = tm[1].trim(); body = body.replace(tm[0], '').trim(); }
-  const sm = raw.match(/^SHASTRIYA:\s*(.+)$/m); if (sm) { src = sm[1].trim(); body = body.replace(sm[0], '').trim(); }
+  let title = '', body = raw.trim(), src = '', ver = false;
+  const tm = raw.match(/^TITLE:\s*(.+)$/m);
+  if (tm) { title = tm[1].trim(); body = body.replace(tm[0], '').trim(); }
+  const sm = raw.match(/^SHASTRIYA:\s*(.+)$/m);
+  if (sm) { src = sm[1].trim(); body = body.replace(sm[0], '').trim(); }
   if (/^VERIFIED:\s*true/im.test(raw)) { ver = true; body = body.replace(/^VERIFIED:\s*true/im, '').trim(); }
-  return { title, body, src, ver };
+  return { title, body: body.trim(), src, ver };
 }
 
-const PTS = { save: 3, thumbsup: 2, feedback_given: 2, daily: 3 };
+// ════════════════════════════════════════════════════════
+// STORAGE & UTILS
+// ════════════════════════════════════════════════════════
 async function addPts(type) {
+  const map = { save: 3, thumbsup: 2, feedback_given: 2, daily: 3 };
   try {
     const c = parseInt(await AsyncStorage.getItem('dharmasetu_pts') || '0', 10);
-    const n = c + (PTS[type] || 0);
+    const n = c + (map[type] || 0);
     await AsyncStorage.setItem('dharmasetu_pts', String(n));
     return n;
   } catch { return 0; }
 }
-async function saveAnswer(q, a, src) {
-  const raw = await AsyncStorage.getItem('dharmasetu_saved') || '[]';
-  const arr = JSON.parse(raw);
-  if (arr.length >= 20) throw new Error('Max 20 answers. Delete some first.');
+async function saveAns(q, a, src) {
+  const arr = JSON.parse(await AsyncStorage.getItem('dharmasetu_saved') || '[]');
+  if (arr.length >= 20) throw new Error('Max 20 saved. Delete some first.');
   arr.unshift({ id: Date.now().toString(), q, a, src, at: new Date().toISOString() });
   await AsyncStorage.setItem('dharmasetu_saved', JSON.stringify(arr));
   await addPts('save');
 }
 async function storeFb(q, a, rating, reason) {
   try {
-    const raw = await AsyncStorage.getItem('dharmasetu_feedback') || '[]';
-    const arr = JSON.parse(raw);
+    const arr = JSON.parse(await AsyncStorage.getItem('dharmasetu_feedback') || '[]');
     arr.push({ q, a, rating, reason, at: new Date().toISOString() });
     await AsyncStorage.setItem('dharmasetu_feedback', JSON.stringify(arr.slice(-200)));
     if (rating === 'up') await addPts('thumbsup');
     if (rating === 'down' && reason) await addPts('feedback_given');
   } catch { }
 }
-
-// Share answer to social media / WhatsApp
-async function shareAnswer(question, answer, source) {
+async function doShare(question, answer, src) {
   try {
-    const summary = answer.length > 400 ? answer.slice(0, 400) + '...' : answer;
-    const shareText =
-      `🕉 DharmaSetu — Dharmic Wisdom\n\n` +
+    const txt = `🕉 DharmaSetu — Dharmic Wisdom\n\n` +
       (question ? `📌 ${question}\n\n` : '') +
-      `${summary}\n\n` +
-      (source ? `📖 Source: ${source}\n\n` : '') +
-      `— Get answers from DharmaSetu App`;
-    await Share.share({ message: shareText, title: 'DharmaSetu — Dharmic Wisdom' });
-  } catch (e) { }
+      (answer.length > 400 ? answer.slice(0, 400) + '...' : answer) + '\n\n' +
+      (src ? `📖 ${src}\n\n` : '') +
+      `— Download DharmaSetu App 🙏`;
+    await Share.share({ message: txt, title: 'DharmaSetu' });
+  } catch { }
+}
+async function doTranslate(text, toLang, currentLang) {
+  const sys = buildSystemPrompt(toLang, '', '', '', '', false);
+  const msgs = [{ role: 'user', content: `Translate this to ${toLang}. Keep scripture refs unchanged. Return ONLY the translation:\n\n${text}` }];
+  return await getAI(msgs, sys);
 }
 
+// ════════════════════════════════════════════════════════
+// SUGGESTIONS (multilingual)
+// ════════════════════════════════════════════════════════
 const SUGG = {
-  hindi: ['मैं बहुत अकेला महसूस करता हूँ', 'राम ने शम्बूक को क्यों मारा?', 'आर्य आक्रमण — सच या झूठ?', 'गीता कर्म के बारे में क्या कहती है?', 'भील समुदाय हिंदू है?'],
-  english: ['I feel very lonely and lost', 'Why did Ram kill Shambuka?', 'Is Aryan Invasion Theory true?', 'What does Gita say about karma?', 'Is the Bheel community Hindu?']
+  hindi:   ['मेरी शादी में देरी क्यों? ज्योतिष क्या कहता है?', 'राम ने शम्बूक को क्यों मारा?', 'आर्य आक्रमण — सच या झूठ?', 'भगवद्गीता का कर्म योग क्या है?', 'मेरे करियर की समस्या का हल बताएं'],
+  english: ['Why is my marriage delayed? What does Jyotish say?', 'Why did Ram kill Shambuka?', 'Is Aryan Invasion Theory true?', 'Explain Karma Yoga from Bhagavad Gita', 'What does my Rashi say about career?'],
+  marathi: ['माझ्या लग्नात उशीर का?', 'रामाने शंबूकाला का मारले?', 'गीतेमधील कर्मयोग काय आहे?', 'माझ्या राशीनुसार करिअर कसे?'],
+  gujarati:['મારા લગ્નમાં વિલંબ કેમ?', 'ભગવદ ગીતાનો કર્મ યોગ શું છે?', 'આર્ય આક્રમણ — સત્ય કે જૂઠ?'],
 };
 
+// ════════════════════════════════════════════════════════
+// COMPONENTS
+// ════════════════════════════════════════════════════════
 function ThinkDots() {
-  const d = [useRef(new Animated.Value(0.2)).current, useRef(new Animated.Value(0.2)).current, useRef(new Animated.Value(0.2)).current];
-  useEffect(() => { d.forEach((dot, i) => Animated.loop(Animated.sequence([Animated.delay(i * 160), Animated.timing(dot, { toValue: 1, duration: 260, useNativeDriver: true }), Animated.timing(dot, { toValue: 0.2, duration: 260, useNativeDriver: true }), Animated.delay(360)])).start()); }, []);
-  return (<View style={{ flexDirection: 'row', gap: 5, padding: 2 }}>{d.map((dot, i) => <Animated.View key={i} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#E8620A', opacity: dot }} />)}</View>);
+  const dots = [useRef(new Animated.Value(0.2)).current, useRef(new Animated.Value(0.2)).current, useRef(new Animated.Value(0.2)).current];
+  useEffect(() => {
+    dots.forEach((d, i) => Animated.loop(Animated.sequence([
+      Animated.delay(i * 160),
+      Animated.timing(d, { toValue: 1, duration: 260, useNativeDriver: true }),
+      Animated.timing(d, { toValue: 0.2, duration: 260, useNativeDriver: true }),
+      Animated.delay(360)
+    ])).start());
+  }, []);
+  return (
+    <View style={{ flexDirection: 'row', gap: 5, padding: 2 }}>
+      {dots.map((d, i) => <Animated.View key={i} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#E8620A', opacity: d }} />)}
+    </View>
+  );
 }
 
-function FbModal({ visible, onClose, onSubmit, isHindi }) {
+function FbModal({ visible, onClose, onSubmit, lang }) {
   const [sel, setSel] = useState(''); const [note, setNote] = useState('');
-  const opts = isHindi ? ['गलत जानकारी', 'शास्त्र संदर्भ गलत', 'उत्तर अधूरा', 'भावनात्मक सहायता नहीं', 'कुछ और'] : ['Wrong info', 'Scripture ref wrong', 'Incomplete', 'Not emotionally helpful', 'Other'];
+  const isH = lang === 'hindi';
+  const opts = isH
+    ? ['गलत जानकारी', 'शास्त्र संदर्भ गलत', 'उत्तर अधूरा', 'भावनात्मक सहायता नहीं', 'कुछ और']
+    : ['Wrong information', 'Scripture ref wrong', 'Incomplete', 'Not helpful', 'Other'];
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={fm.ov}>
-        <View style={fm.box}>
-          <Text style={fm.title}>{isHindi ? '👎 Feedback' : '👎 Your Feedback'}</Text>
-          <Text style={fm.sub}>{isHindi ? 'यह feedback AI को बेहतर बनाता है 🙏' : 'This feedback improves our AI 🙏'}</Text>
-          {opts.map(o => <TouchableOpacity key={o} style={[fm.chip, sel === o && fm.chipOn]} onPress={() => setSel(o)}><Text style={[fm.cTxt, sel === o && fm.cTxtOn]}>{o}</Text></TouchableOpacity>)}
-          <TextInput style={fm.inp} placeholder={isHindi ? 'और कुछ? (optional)' : 'Anything else? (optional)'} placeholderTextColor="rgba(253,246,237,0.3)" value={note} onChangeText={setNote} multiline maxLength={200} />
-          <View style={fm.row}>
-            <TouchableOpacity style={fm.cancel} onPress={onClose}><Text style={fm.cancelT}>{isHindi ? 'रद्द' : 'Cancel'}</Text></TouchableOpacity>
-            <TouchableOpacity style={fm.submit} onPress={() => { onSubmit(sel + (note ? ' — ' + note : '')); setSel(''); setNote(''); }}><Text style={fm.submitT}>Submit 🙏</Text></TouchableOpacity>
-          </View>
+      <View style={fm.ov}><View style={fm.box}>
+        <Text style={fm.title}>{isH ? '👎 Feedback दें' : '👎 Your Feedback'}</Text>
+        <Text style={fm.sub}>{isH ? 'AI को बेहतर बनाने में मदद करें 🙏' : 'Help us improve the AI 🙏'}</Text>
+        {opts.map(o => (
+          <TouchableOpacity key={o} style={[fm.chip, sel === o && fm.chipOn]} onPress={() => setSel(o)}>
+            <Text style={[fm.cTxt, sel === o && fm.cTxtOn]}>{o}</Text>
+          </TouchableOpacity>
+        ))}
+        <TextInput style={fm.inp} placeholder={isH ? 'और कुछ? (optional)' : 'Anything else? (optional)'} placeholderTextColor="rgba(253,246,237,0.3)" value={note} onChangeText={setNote} multiline maxLength={200} />
+        <View style={fm.row}>
+          <TouchableOpacity style={fm.cancel} onPress={onClose}><Text style={fm.cancelT}>{isH ? 'रद्द करें' : 'Cancel'}</Text></TouchableOpacity>
+          <TouchableOpacity style={fm.submit} onPress={() => { onSubmit(sel + (note ? ' — ' + note : '')); setSel(''); setNote(''); }}>
+            <Text style={fm.submitT}>Submit 🙏</Text>
+          </TouchableOpacity>
         </View>
-      </View>
+      </View></View>
     </Modal>
   );
 }
@@ -225,132 +320,156 @@ const fm = StyleSheet.create({
 });
 
 // ════════════════════════════════════════════════════════
-// MAIN DHARMACHAT SCREEN
+// MAIN SCREEN
 // ════════════════════════════════════════════════════════
 export default function DharmaChatScreen() {
   const insets = useSafeAreaInsets();
-  const [userLang, setUserLang] = useState('hindi');
-  const [userName, setUserName] = useState('Dharma Rakshak');
+  const [userLang,  setUserLang]  = useState('hindi');
+  const [userName,  setUserName]  = useState('Dharma Rakshak');
   const [userDeity, setUserDeity] = useState('');
   const [userRashi, setUserRashi] = useState('');
-  const [chatMode, setChatMode] = useState('dharma');
-  const [pts, setPts] = useState(0);
-  const [ready, setReady] = useState(false);
-  const [msgs, setMsgs] = useState([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [hist, setHist] = useState([]);
-  const [transId, setTransId] = useState(null);
-  const [isRec, setIsRec] = useState(false);
-  const [recSec, setRecSec] = useState(0);
-  const [fbMsgId, setFbMsgId] = useState(null);
+  const [userNak,   setUserNak]   = useState('');
+  const [chatMode,  setChatMode]  = useState('dharma');
+  const [pts,       setPts]       = useState(0);
+  const [ready,     setReady]     = useState(false);
+  const [msgs,      setMsgs]      = useState([]);
+  const [input,     setInput]     = useState('');
+  const [loading,   setLoading]   = useState(false);
+  const [hist,      setHist]      = useState([]);
+  const [transId,   setTransId]   = useState(null);
+  const [isRec,     setIsRec]     = useState(false);
+  const [recSec,    setRecSec]    = useState(0);
+  const [fbMsgId,   setFbMsgId]   = useState(null);
 
   const scrollRef = useRef(null);
-  const sendSc = useRef(new Animated.Value(1)).current;
-  const micSc = useRef(new Animated.Value(1)).current;
-  const micAnim = useRef(null);
-  const recTimer = useRef(null);
+  const sendSc    = useRef(new Animated.Value(1)).current;
+  const micSc     = useRef(new Animated.Value(1)).current;
+  const micAnim   = useRef(null);
+  const recTimer  = useRef(null);
   const tNow = () => new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
 
+  // ── INIT ────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem('dharmasetu_user');
-        const p = parseInt(await AsyncStorage.getItem('dharmasetu_pts') || '0', 10);
+        const p   = parseInt(await AsyncStorage.getItem('dharmasetu_pts') || '0', 10);
         setPts(p);
-        let lang = 'hindi', name = 'Dharma Rakshak', deity = '', rashi = '';
-        if (raw) { const u = JSON.parse(raw); lang = u.language || 'hindi'; name = u.name || 'Dharma Rakshak'; deity = u.deity || ''; rashi = u.rashi || ''; }
-        setUserLang(lang); setUserName(name); setUserDeity(deity); setUserRashi(rashi);
-        const mode = await AsyncStorage.getItem('dharmasetu_mode');
+
+        let lang = 'hindi', name = 'Dharma Rakshak', deity = '', rashi = '', nak = '';
+        if (raw) {
+          const u = JSON.parse(raw);
+          lang  = u.language  || 'hindi';
+          name  = u.name      || 'Dharma Rakshak';
+          deity = u.deity     || '';
+          rashi = u.rashi     || '';
+          nak   = u.nakshatra || '';
+        }
+        setUserLang(lang); setUserName(name); setUserDeity(deity); setUserRashi(rashi); setUserNak(nak);
+
+        const presetQ = await AsyncStorage.getItem('dharmasetu_preset_question');
+        const mode    = await AsyncStorage.getItem('dharmasetu_mode');
         if (mode === 'factcheck') { setChatMode('factcheck'); await AsyncStorage.removeItem('dharmasetu_mode'); }
+
         const isH = lang === 'hindi';
-        const greet = isH
-          ? `नमस्ते, ${name}! 🙏\n\n${deity ? deity + ' की कृपा आप पर बनी रहे।\n\n' : ''}मैं DharmaSetu हूँ। केवल सनातन धर्म, हिंदू शास्त्र, और आध्यात्मिक प्रश्नों का उत्तर देता हूँ।`
-          : `Namaste, ${name}! 🙏\n\n${deity ? 'May ' + deity + ' bless you.\n\n' : ''}I am DharmaSetu. I answer only questions about Sanatan Dharma, Hindu scriptures, and spiritual guidance.`;
-        setMsgs([{ id: 'w', type: 'ai', title: isH ? '🙏 जय श्री राम' : '🙏 Jai Shri Ram', body: greet, src: '', ver: false, translations: {}, activeLang: null, feedback: null, saved: false, streaming: false, isWelcome: true, time: tNow() }]);
+        const greetMap = {
+          hindi:   `नमस्ते, ${name}! 🙏\n\n${deity ? `${deity} की कृपा आप पर बनी रहे। 🌸\n\n` : ''}मैं DharmaSetu हूँ — आपका वैदिक मार्गदर्शक।\n\nशास्त्र, ज्योतिष, और जीवन के किसी भी प्रश्न का उत्तर दे सकता हूँ।${rashi ? `\n\nआपकी ${rashi} राशि और ${nak} नक्षत्र के अनुसार व्यक्तिगत मार्गदर्शन के लिए पूछें।` : ''}`,
+          english: `Namaste, ${name}! 🙏\n\n${deity ? `May ${deity} bless you always. 🌸\n\n` : ''}I am DharmaSetu — your Vedic guide.\n\nAsk me about Dharma, Jyotish, scriptures, or life guidance.${rashi ? `\n\nBased on your ${rashi} Rashi & ${nak} Nakshatra, I can give personalized Vedic insights.` : ''}`,
+          marathi: `नमस्ते, ${name}! 🙏\n\nमी DharmaSetu आहे — तुमचा वैदिक मार्गदर्शक. शास्त्र, ज्योतिष आणि जीवनाबद्दल कोणतेही प्रश्न विचारा.`,
+          gujarati:`નમસ્તે, ${name}! 🙏\n\nહું DharmaSetu છું — તમારો વૈદિક માર્ગદર્શક. શાસ્ત્ર, જ્યોતિષ અને જીવન વિશે પ્રશ્ન પૂછો.`,
+        };
+        const greet = greetMap[lang] || greetMap.english;
+        const titleMap = { hindi: '🙏 जय श्री राम', marathi: '🙏 जय श्री राम', gujarati: '🙏 જય શ્રી રામ', english: '🙏 Jai Shri Ram' };
+
+        setMsgs([{
+          id: 'w', type: 'ai', title: titleMap[lang] || titleMap.english,
+          body: greet, src: '', ver: false, translations: {}, activeLang: null,
+          feedback: null, saved: false, streaming: false, isWelcome: true, time: tNow()
+        }]);
         setReady(true);
+
+        if (presetQ) {
+          await AsyncStorage.removeItem('dharmasetu_preset_question');
+          setTimeout(() => autoSend(presetQ, lang, name, deity, rashi, nak, mode === 'factcheck'), 900);
+        }
+
         const today = new Date().toDateString();
-        const last = await AsyncStorage.getItem('dharmasetu_checkin');
+        const last  = await AsyncStorage.getItem('dharmasetu_checkin');
         if (last !== today) { await AsyncStorage.setItem('dharmasetu_checkin', today); const n = await addPts('daily'); setPts(n); }
-      } catch {
+      } catch (e) {
+        console.error('Init error:', e);
         setReady(true);
-        setMsgs([{ id: 'w', type: 'ai', title: '🙏 Jai Shri Ram', body: 'Namaste! I am DharmaSetu. I answer questions about Sanatan Dharma, Hindu scriptures, and spiritual guidance.', src: '', ver: false, translations: {}, activeLang: null, feedback: null, saved: false, streaming: false, isWelcome: true, time: tNow() }]);
+        setMsgs([{ id: 'w', type: 'ai', title: '🙏 Jai Shri Ram', body: 'Namaste! I am DharmaSetu. Ask me about Sanatan Dharma or spiritual guidance.', src: '', ver: false, translations: {}, activeLang: null, feedback: null, saved: false, streaming: false, isWelcome: true, time: tNow() }]);
       }
     })();
   }, []);
 
-  const scrollDown = useCallback(() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100), []);
+  const scrollDown = useCallback(() => { setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100); }, []);
 
   const pulseSend = () => {
     Vibration.vibrate(20);
-    Animated.sequence([Animated.timing(sendSc, { toValue: 0.87, duration: 70, useNativeDriver: true }), Animated.spring(sendSc, { toValue: 1, friction: 3, tension: 280, useNativeDriver: true })]).start();
+    Animated.sequence([
+      Animated.timing(sendSc, { toValue: 0.87, duration: 70, useNativeDriver: true }),
+      Animated.spring(sendSc, { toValue: 1, friction: 3, tension: 280, useNativeDriver: true })
+    ]).start();
   };
 
   const startRec = () => {
     setIsRec(true); setRecSec(0); Vibration.vibrate([0, 40]);
-    micAnim.current = Animated.loop(Animated.sequence([Animated.timing(micSc, { toValue: 1.3, duration: 500, useNativeDriver: true }), Animated.timing(micSc, { toValue: 1, duration: 500, useNativeDriver: true })]));
+    micAnim.current = Animated.loop(Animated.sequence([
+      Animated.timing(micSc, { toValue: 1.3, duration: 500, useNativeDriver: true }),
+      Animated.timing(micSc, { toValue: 1, duration: 500, useNativeDriver: true })
+    ]));
     micAnim.current.start();
     recTimer.current = setInterval(() => setRecSec(s => { if (s >= 30) { stopRec(); return 30; } return s + 1; }), 1000);
   };
-
   const stopRec = () => {
-    setIsRec(false); setRecSec(0);
-    micAnim.current?.stop(); micAnim.current = null;
+    setIsRec(false); setRecSec(0); micAnim.current?.stop(); micAnim.current = null;
     clearInterval(recTimer.current); recTimer.current = null;
     Animated.timing(micSc, { toValue: 1, duration: 150, useNativeDriver: true }).start();
     Vibration.vibrate(25);
-    const msg = userLang === 'hindi' ? 'Voice feature Google Play publish होने के बाद active होगा। अभी type करें 🙏' : 'Voice feature will be active after Google Play release. Type for now 🙏';
-    Alert.alert('🎤', msg, [{ text: '🕉 OK' }]);
+    const msg = { hindi: 'Voice feature जल्द आएगा। अभी type करें 🙏', english: 'Voice feature coming soon. Please type for now 🙏' };
+    Alert.alert('🎤', msg[userLang] || msg.english, [{ text: 'OK 🕉' }]);
   };
 
   const streamText = useCallback((fullText, id) => {
-    const words = fullText.split(' '); let built = ''; let i = 0;
+    const words = fullText.split(' '); let built = '', i = 0;
     const iv = setInterval(() => {
-      if (i >= words.length) { clearInterval(iv); setMsgs(prev => prev.map(m => m.id === id ? { ...m, streaming: false } : m)); scrollDown(); return; }
+      if (i >= words.length) { clearInterval(iv); setMsgs(p => p.map(m => m.id === id ? { ...m, streaming: false } : m)); scrollDown(); return; }
       built += (i === 0 ? '' : ' ') + words[i++];
-      setMsgs(prev => prev.map(m => m.id === id ? { ...m, body: built } : m));
-      if (i % 8 === 0) scrollDown();
-    }, 28);
+      setMsgs(p => p.map(m => m.id === id ? { ...m, body: built } : m));
+      if (i % 6 === 0) scrollDown();
+    }, 25);
   }, [scrollDown]);
 
-  const handleTranslate = async (msgId, lang) => {
-    const msg = msgs.find(m => m.id === msgId);
-    if (!msg || msg.isWelcome) return;
-    if (msg.activeLang === lang) { setMsgs(prev => prev.map(m => m.id === msgId ? { ...m, activeLang: null } : m)); return; }
-    if (msg.translations?.[lang]) { setMsgs(prev => prev.map(m => m.id === msgId ? { ...m, activeLang: lang } : m)); return; }
-    setTransId(msgId + lang);
+  // ── CORE SEND ────────────────────────────────────────────
+  const coreAutoSend = async (question, lang, name, deity, rashi, nak, isFC) => {
+    const clean = Sec.clean(question);
+    if (!clean || clean.length < 2) return;
+    const uid = Date.now().toString(), aid = (Date.now() + 1).toString(), t = tNow();
+    setMsgs(prev => [...prev,
+      { id: uid, type: 'user', text: clean, time: t },
+      { id: aid, type: 'ai', title: '', body: '', src: '', ver: false, translations: {}, activeLang: null, feedback: null, saved: false, streaming: true, thinking: true, question: clean, time: t }
+    ]);
+    setLoading(true); scrollDown();
     try {
-      const src = (msg.origBody || msg.body) + (msg.src ? '\n' + msg.src : '');
-      const translated = await doTranslate(src, lang);
-      setMsgs(prev => prev.map(m => m.id === msgId ? { ...m, origBody: m.origBody || m.body, translations: { ...m.translations, [lang]: translated }, activeLang: lang } : m));
-    } catch { Alert.alert('', 'Translation failed.'); }
-    setTransId(null);
+      const sys  = buildSystemPrompt(lang, name, deity, rashi, nak, isFC);
+      const msgs = [{ role: 'user', content: clean }];
+      const rawA = await getAI(msgs, sys);
+      const parsed = parseResp(rawA);
+      setMsgs(p => p.map(m => m.id === aid ? { ...m, title: parsed.title, src: parsed.src, ver: parsed.ver, origBody: parsed.body, thinking: false } : m));
+      setHist(p => [...p, { role: 'user', content: clean }, { role: 'assistant', content: rawA }].slice(-16));
+      streamText(parsed.body, aid);
+    } catch (err) {
+      console.error('AutoSend err:', err.message);
+      const errMsgs = { hindi: 'सर्वर से जोड़ नहीं पाए। Internet जांचें और दोबारा try करें।', english: 'Could not connect to server. Check internet and try again.' };
+      setMsgs(p => p.map(m => m.id === aid ? { ...m, body: errMsgs[lang] || errMsgs.english, thinking: false, streaming: false } : m));
+    }
+    setLoading(false); scrollDown();
   };
 
-  const handleUp = (msg) => {
-    if (msg.feedback) return;
-    Vibration.vibrate(20);
-    setMsgs(prev => prev.map(m => m.id === msg.id ? { ...m, feedback: 'up' } : m));
-    storeFb(msg.question || '', msg.body, 'up', '');
-    addPts('thumbsup').then(setPts);
-  };
-
-  const handleDown = (msg) => { if (!msg.feedback) setFbMsgId(msg.id); };
-
-  const submitFb = (reason) => {
-    const msg = msgs.find(m => m.id === fbMsgId);
-    setMsgs(prev => prev.map(m => m.id === fbMsgId ? { ...m, feedback: 'down' } : m));
-    if (msg) storeFb(msg.question || '', msg.body, 'down', reason);
-    setFbMsgId(null);
-    Alert.alert('🙏', userLang === 'hindi' ? 'शुक्रिया! आपका feedback AI को बेहतर बनाएगा।' : 'Thank you! Your feedback improves our AI.');
-    addPts('feedback_given').then(setPts);
-  };
-
-  const handleSave = async (msg) => {
-    if (msg.saved) { Alert.alert('', userLang === 'hindi' ? 'पहले से saved है।' : 'Already saved.'); return; }
-    try { await saveAnswer(msg.question || '', msg.body, msg.src); setMsgs(prev => prev.map(m => m.id === msg.id ? { ...m, saved: true } : m)); Vibration.vibrate(20); Alert.alert('✅', 'Saved! +3 Dharma Points 🕉'); }
-    catch (e) { Alert.alert('', e.message); }
-  };
+  // alias for useEffect
+  const autoSend = coreAutoSend;
 
   const send = async (txt) => {
     const raw = (txt || input).trim();
@@ -358,40 +477,67 @@ export default function DharmaChatScreen() {
     if (!Sec.ok()) { Alert.alert('', userLang === 'hindi' ? 'थोड़ा रुकें।' : 'Please wait.'); return; }
     const clean = Sec.clean(raw);
     if (!Sec.valid(clean) || clean.length < 2) return;
-    pulseSend();
-    const uid = Date.now().toString(); const aid = (Date.now() + 1).toString(); const t = tNow();
-    setMsgs(prev => [...prev, { id: uid, type: 'user', text: clean, time: t }, { id: aid, type: 'ai', title: '', body: '', src: '', ver: false, translations: {}, activeLang: null, feedback: null, saved: false, streaming: true, thinking: true, question: clean, time: t }]);
-    setInput(''); setLoading(true); scrollDown();
+    pulseSend(); setInput('');
+
+    const uid = Date.now().toString(), aid = (Date.now() + 1).toString(), t = tNow();
+    setMsgs(prev => [...prev,
+      { id: uid, type: 'user', text: clean, time: t },
+      { id: aid, type: 'ai', title: '', body: '', src: '', ver: false, translations: {}, activeLang: null, feedback: null, saved: false, streaming: true, thinking: true, question: clean, time: t }
+    ]);
+    setLoading(true); scrollDown();
+
     try {
-      const sys = buildSys(userLang, userName, userDeity, userRashi, chatMode === 'factcheck');
-      const rawA = await getAnswer(clean, hist, sys);
+      const sys    = buildSystemPrompt(userLang, userName, userDeity, userRashi, userNak, chatMode === 'factcheck');
+      const apiMsgs = hist.slice(-8).concat([{ role: 'user', content: clean }]);
+      const rawA   = await getAI(apiMsgs, sys);
       const parsed = parseResp(rawA);
-      setMsgs(prev => prev.map(m => m.id === aid ? { ...m, title: parsed.title, src: parsed.src, ver: parsed.ver, origBody: parsed.body, thinking: false } : m));
-      setHist(prev => [...prev, { role: 'user', content: clean }, { role: 'assistant', content: rawA }].slice(-16));
+      setMsgs(p => p.map(m => m.id === aid ? { ...m, title: parsed.title, src: parsed.src, ver: parsed.ver, origBody: parsed.body, thinking: false } : m));
+      setHist(p => [...p, { role: 'user', content: clean }, { role: 'assistant', content: rawA }].slice(-16));
       streamText(parsed.body, aid);
-    } catch {
-      setMsgs(prev => prev.map(m => m.id === aid ? { ...m, body: userLang === 'hindi' ? 'Internet issue। Dobara try karein।' : 'Internet issue. Please try again.', thinking: false, streaming: false } : m));
+    } catch (err) {
+      console.error('Send err:', err.message);
+      let errMsg = { hindi: 'सर्वर से जोड़ नहीं पाए। Internet जांचें और दोबारा try करें।', english: 'Server connection failed. Check internet and try again.' };
+      if (err.message?.includes('SAFETY')) errMsg = { hindi: 'यह प्रश्न answer नहीं किया जा सकता।', english: 'This question cannot be answered.' };
+      setMsgs(p => p.map(m => m.id === aid ? { ...m, body: errMsg[userLang] || errMsg.english, thinking: false, streaming: false } : m));
     }
     setLoading(false); scrollDown();
   };
 
-  const isH = userLang === 'hindi';
-  const suggs = SUGG[userLang] || SUGG.english;
+  const handleTranslate = async (msgId, lang) => {
+    const msg = msgs.find(m => m.id === msgId);
+    if (!msg || msg.isWelcome) return;
+    if (msg.activeLang === lang) { setMsgs(p => p.map(m => m.id === msgId ? { ...m, activeLang: null } : m)); return; }
+    if (msg.translations?.[lang]) { setMsgs(p => p.map(m => m.id === msgId ? { ...m, activeLang: lang } : m)); return; }
+    setTransId(msgId + lang);
+    try {
+      const src = (msg.origBody || msg.body) + (msg.src ? '\n' + msg.src : '');
+      const tr = await doTranslate(src, lang, userLang);
+      setMsgs(p => p.map(m => m.id === msgId ? { ...m, origBody: m.origBody || m.body, translations: { ...m.translations, [lang]: tr }, activeLang: lang } : m));
+    } catch { Alert.alert('', 'Translation failed. Try again.'); }
+    setTransId(null);
+  };
+
+  const handleUp   = msg => { if (msg.feedback) return; Vibration.vibrate(20); setMsgs(p => p.map(m => m.id === msg.id ? { ...m, feedback: 'up' } : m)); storeFb(msg.question || '', msg.body, 'up', ''); addPts('thumbsup').then(setPts); };
+  const handleDown = msg => { if (!msg.feedback) setFbMsgId(msg.id); };
+  const submitFb   = reason => { const msg = msgs.find(m => m.id === fbMsgId); setMsgs(p => p.map(m => m.id === fbMsgId ? { ...m, feedback: 'down' } : m)); if (msg) storeFb(msg.question || '', msg.body, 'down', reason); setFbMsgId(null); Alert.alert('🙏', userLang === 'hindi' ? 'Feedback मिल गया!' : 'Feedback received!'); addPts('feedback_given').then(setPts); };
+  const handleSave = async msg => { if (msg.saved) { Alert.alert('', userLang === 'hindi' ? 'पहले से saved है।' : 'Already saved.'); return; } try { await saveAns(msg.question || '', msg.body, msg.src); setMsgs(p => p.map(m => m.id === msg.id ? { ...m, saved: true } : m)); Vibration.vibrate(20); Alert.alert('✅', '+3 Dharma Points! 🕉'); } catch (e) { Alert.alert('', e.message); } };
+
+  const isH    = userLang === 'hindi';
+  const suggs  = SUGG[userLang] || SUGG.english;
+  const phText = { hindi: 'धर्म, ज्योतिष या जीवन के बारे में पूछें...', english: 'Ask about Dharma, Jyotish, or life...', marathi: 'धर्म, ज्योतिष किंवा जीवनाबद्दल विचारा...', gujarati: 'ધર્મ, જ્યોતિષ કે જીવન વિશે પૂછો...' };
 
   return (
     <View style={[s.root, { paddingTop: insets.top }]}>
       <StatusBar style="light" backgroundColor="#0D0500" translucent={false} />
       <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
 
+        {/* HEADER */}
         <View style={s.hdr}>
           <View style={s.hL}>
             <View style={s.hAv}><Text style={{ fontSize: 18 }}>🕉</Text></View>
             <View>
               <Text style={s.hTitle}>DharmaChat AI</Text>
-              <View style={s.hSub}>
-                <View style={s.gDot} />
-                <Text style={s.hSubTxt}>{chatMode === 'factcheck' ? '🛡️ Fact Check Mode' : (isH ? '💬 DharmaChat' : '💬 DharmaChat')}</Text>
-              </View>
+              <View style={s.hSub}><View style={s.gDot} /><Text style={s.hSubTxt}>{chatMode === 'factcheck' ? '🛡️ Fact Check' : '💬 Online'}</Text></View>
             </View>
           </View>
           <View style={s.hR}>
@@ -402,10 +548,15 @@ export default function DharmaChatScreen() {
           </View>
         </View>
 
-        {chatMode === 'factcheck' && <View style={s.fcBnr}><Text style={s.fcBnrTxt}>{isH ? '🛡️ Fact Check — कोई भी claim paste करें, सच जानें' : '🛡️ Fact Check Mode — Paste any claim to verify truth'}</Text></View>}
+        {chatMode === 'factcheck' && (
+          <View style={s.fcBnr}>
+            <Text style={s.fcBnrTxt}>{isH ? '🛡️ Fact Check — कोई भी claim paste करें, सच जानें' : '🛡️ Fact Check — Paste any claim to verify truth'}</Text>
+          </View>
+        )}
 
+        {/* LANG BAR */}
         <View style={s.lBar}>
-          <Text style={s.lLbl}>LANG:</Text>
+          <Text style={s.lLbl}>{isH ? 'भाषा:' : 'LANG:'}</Text>
           {[{ id: 'hindi', l: 'हिंदी' }, { id: 'english', l: 'English' }].map(({ id, l }) => (
             <TouchableOpacity key={id} style={[s.lChip, userLang === id && s.lChipOn]} onPress={() => setUserLang(id)} activeOpacity={0.8}>
               <Text style={[s.lTxt, userLang === id && s.lTxtOn]}>{l}</Text>
@@ -413,16 +564,15 @@ export default function DharmaChatScreen() {
           ))}
         </View>
 
-        <View style={s.dSep}><View style={s.dLine} /><Text style={s.dTxt}>TODAY</Text><View style={s.dLine} /></View>
+        <View style={s.dSep}><View style={s.dLine} /><Text style={s.dTxt}>{isH ? 'आज' : 'TODAY'}</Text><View style={s.dLine} /></View>
 
+        {/* MESSAGES */}
         <ScrollView ref={scrollRef} style={s.flex} contentContainerStyle={s.mList} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {msgs.map(msg => {
             if (msg.type === 'user') return (
               <View key={msg.id} style={s.uRow}>
-                <View>
-                  <View style={s.uBub}><Text style={s.uTxt}>{msg.text}</Text></View>
-                  <Text style={s.uTime}>You · {msg.time}</Text>
-                </View>
+                <View><View style={s.uBub}><Text style={s.uTxt}>{msg.text}</Text></View>
+                  <Text style={s.uTime}>{isH ? 'आप' : 'You'} · {msg.time}</Text></View>
               </View>
             );
             if (msg.thinking) return (
@@ -430,7 +580,7 @@ export default function DharmaChatScreen() {
                 <View style={s.aBdg}><Text style={{ fontSize: 11 }}>🕉</Text></View>
                 <View style={[s.aBub, { paddingVertical: 14 }]}>
                   <ThinkDots />
-                  <Text style={{ fontSize: 11, color: 'rgba(253,246,237,0.25)', marginTop: 4 }}>{isH ? 'शास्त्र खोज रहे हैं...' : 'Searching scriptures...'}</Text>
+                  <Text style={{ fontSize: 11, color: 'rgba(253,246,237,0.25)', marginTop: 4 }}>{isH ? 'शास्त्र और ज्योतिष खोज रहे हैं...' : 'Searching scriptures & Jyotish...'}</Text>
                 </View>
               </View>
             );
@@ -444,37 +594,33 @@ export default function DharmaChatScreen() {
                   <Text style={s.aTxt}>{showTxt}{msg.streaming ? <Text style={s.cur}> ▌</Text> : null}</Text>
                   {msg.src && !msg.streaming ? (
                     <View style={s.srcBox}>
-                      <View style={s.srcHdr}><Text style={{ fontSize: 11 }}>📖</Text><Text style={s.srcLbl}>SHASTRIYA SANDARBH</Text></View>
+                      <View style={s.srcHdr}><Text style={{ fontSize: 11 }}>📖</Text><Text style={s.srcLbl}>{isH ? 'शास्त्रीय संदर्भ' : 'SHASTRIYA SANDARBH'}</Text></View>
                       <Text style={s.srcTxt}>{msg.src}</Text>
-                      {msg.ver && <View style={s.verRow}><Text style={s.verChk}>✓</Text><Text style={s.verTxt}>Verified · Shastriya Pramaan</Text></View>}
+                      {msg.ver && <View style={s.verRow}><Text style={s.verChk}>✓</Text><Text style={s.verTxt}>{isH ? 'सत्यापित · शास्त्रीय प्रमाण' : 'Verified · Shastriya Pramaan'}</Text></View>}
                     </View>
                   ) : null}
                   {showActs && (
                     <View style={s.actRow}>
                       <TouchableOpacity style={[s.actBtn, msg.feedback === 'up' && s.actUp]} onPress={() => handleUp(msg)} disabled={!!msg.feedback} activeOpacity={0.8}>
-                        <Text style={{ fontSize: 14 }}>👍</Text>{msg.feedback === 'up' && <Text style={[s.actLbl, { color: '#27AE60' }]}>{isH ? 'सही' : 'Correct'}</Text>}
+                        <Text style={{ fontSize: 14 }}>👍</Text>{msg.feedback === 'up' && <Text style={[s.actLbl, { color: '#27AE60' }]}>✓</Text>}
                       </TouchableOpacity>
                       <TouchableOpacity style={[s.actBtn, msg.feedback === 'down' && s.actDn]} onPress={() => handleDown(msg)} disabled={!!msg.feedback} activeOpacity={0.8}>
-                        <Text style={{ fontSize: 14 }}>👎</Text>{msg.feedback === 'down' && <Text style={[s.actLbl, { color: '#E74C3C' }]}>Feedback</Text>}
+                        <Text style={{ fontSize: 14 }}>👎</Text>
                       </TouchableOpacity>
                       <TouchableOpacity style={[s.actBtn, msg.saved && s.actSav]} onPress={() => handleSave(msg)} activeOpacity={0.8}>
-                        <Text style={{ fontSize: 14 }}>🔖</Text><Text style={[s.actLbl, msg.saved && { color: '#C9830A' }]}>{msg.saved ? 'Saved' : 'Save'}</Text>
+                        <Text style={{ fontSize: 14 }}>🔖</Text>
+                        <Text style={[s.actLbl, msg.saved && { color: '#C9830A' }]}>{msg.saved ? (isH ? 'सेव्ड' : 'Saved') : (isH ? 'सेव' : 'Save')}</Text>
                       </TouchableOpacity>
-                      {/* ── SHARE BUTTON ── */}
-                      <TouchableOpacity
-                        style={s.actBtn}
-                        onPress={() => shareAnswer(msg.question || '', msg.origBody || msg.body, msg.src)}
-                        activeOpacity={0.8}
-                      >
+                      <TouchableOpacity style={s.actBtn} onPress={() => doShare(msg.question || '', msg.origBody || msg.body, msg.src)} activeOpacity={0.8}>
                         <Text style={{ fontSize: 14 }}>📤</Text>
-                        <Text style={s.actLbl}>{isH ? 'Share' : 'Share'}</Text>
+                        <Text style={s.actLbl}>{isH ? 'शेयर' : 'Share'}</Text>
                       </TouchableOpacity>
                       {[{ l: 'hindi', t: 'हिं' }, { l: 'english', t: 'EN' }, { l: 'sanskrit', t: 'संस्' }].map(({ l, t }) => (
                         <TouchableOpacity key={l} style={[s.tBtn, msg.activeLang === l && s.tBtnOn]} onPress={() => handleTranslate(msg.id, l)} disabled={!!transId} activeOpacity={0.8}>
                           {transId === msg.id + l ? <ActivityIndicator size={9} color="#E8620A" /> : <Text style={[s.tTxt, msg.activeLang === l && s.tTxtOn]}>{t}</Text>}
                         </TouchableOpacity>
                       ))}
-                      {msg.activeLang && <TouchableOpacity style={s.tBtn} onPress={() => setMsgs(prev => prev.map(m => m.id === msg.id ? { ...m, activeLang: null } : m))}><Text style={s.tTxt}>↩</Text></TouchableOpacity>}
+                      {msg.activeLang && <TouchableOpacity style={s.tBtn} onPress={() => setMsgs(p => p.map(m => m.id === msg.id ? { ...m, activeLang: null } : m))}><Text style={s.tTxt}>↩</Text></TouchableOpacity>}
                     </View>
                   )}
                   {!msg.streaming && msg.time && <Text style={s.aTime}>DharmaChat · {msg.time}</Text>}
@@ -484,21 +630,23 @@ export default function DharmaChatScreen() {
           })}
         </ScrollView>
 
+        {/* SUGGESTIONS */}
         {msgs.length <= 1 && !loading && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.pills} contentContainerStyle={s.pillsC} keyboardShouldPersistTaps="handled">
             {suggs.map((sg, i) => <TouchableOpacity key={i} style={s.pill} onPress={() => send(sg)} activeOpacity={0.8}><Text style={s.pillTxt}>{sg}</Text></TouchableOpacity>)}
           </ScrollView>
         )}
 
+        {/* INPUT */}
         <View style={[s.iBar, { paddingBottom: 10 + insets.bottom }]}>
           {isRec ? (
             <View style={s.recBar}>
               <Animated.View style={[s.recDot, { transform: [{ scale: micSc }] }]} />
-              <Text style={s.recTxt}>Recording... {recSec}s</Text>
-              <TouchableOpacity onPress={stopRec}><Text style={s.recStop}>Stop</Text></TouchableOpacity>
+              <Text style={s.recTxt}>{isH ? `रिकॉर्ड हो रहा है... ${recSec}s` : `Recording... ${recSec}s`}</Text>
+              <TouchableOpacity onPress={stopRec}><Text style={s.recStop}>{isH ? 'रोकें' : 'Stop'}</Text></TouchableOpacity>
             </View>
           ) : (
-            <TextInput style={s.inp} placeholder={isH ? 'यहाँ पूछें — धर्म या जीवन के बारे में...' : 'Ask anything about Dharma or life...'} placeholderTextColor="rgba(253,246,237,0.28)" value={input} onChangeText={setInput} multiline maxLength={500} blurOnSubmit={false} />
+            <TextInput style={s.inp} placeholder={phText[userLang] || phText.english} placeholderTextColor="rgba(253,246,237,0.28)" value={input} onChangeText={setInput} multiline maxLength={500} blurOnSubmit={false} />
           )}
           <Animated.View style={{ transform: [{ scale: micSc }] }}>
             <TouchableOpacity style={[s.micBtn, isRec && s.micOn]} onPress={isRec ? stopRec : startRec} activeOpacity={0.85}>
@@ -513,7 +661,7 @@ export default function DharmaChatScreen() {
         </View>
 
       </KeyboardAvoidingView>
-      <FbModal visible={!!fbMsgId} onClose={() => setFbMsgId(null)} onSubmit={submitFb} isHindi={isH} />
+      <FbModal visible={!!fbMsgId} onClose={() => setFbMsgId(null)} onSubmit={submitFb} lang={userLang} />
     </View>
   );
 }
@@ -522,7 +670,7 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0D0500' }, flex: { flex: 1 },
   hdr: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#0D0500', borderBottomWidth: 1, borderBottomColor: 'rgba(240,165,0,0.1)' },
   hL: { flexDirection: 'row', alignItems: 'center', gap: 12 }, hR: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  hAv: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#6B21A8', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(240,165,0,0.4)', elevation: 4, shadowColor: '#6B21A8', shadowOpacity: 0.5, shadowRadius: 6 },
+  hAv: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#6B21A8', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(240,165,0,0.4)', elevation: 4 },
   hTitle: { fontSize: 15, fontWeight: '700', color: '#FDF6ED' },
   hSub: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 1 },
   gDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#2ECC71' },
@@ -544,7 +692,7 @@ const s = StyleSheet.create({
   dTxt: { fontSize: 10, color: 'rgba(253,246,237,0.2)', letterSpacing: 1.5 },
   mList: { padding: 12, paddingBottom: 8, gap: 10 },
   uRow: { flexDirection: 'row-reverse', alignItems: 'flex-end' },
-  uBub: { backgroundColor: '#C45508', borderRadius: 18, borderTopRightRadius: 4, padding: 14, maxWidth: SW * 0.78, elevation: 3, shadowColor: '#C45508', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4 },
+  uBub: { backgroundColor: '#C45508', borderRadius: 18, borderTopRightRadius: 4, padding: 14, maxWidth: SW * 0.78 },
   uTxt: { fontSize: 14, color: '#fff', lineHeight: 22 },
   uTime: { fontSize: 10, color: 'rgba(253,246,237,0.2)', textAlign: 'right', marginTop: 3 },
   aRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
@@ -583,7 +731,7 @@ const s = StyleSheet.create({
   inp: { flex: 1, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 11, color: '#FDF6ED', fontSize: 14, maxHeight: 120, minHeight: 46, borderWidth: 1, borderColor: 'rgba(200,130,40,0.16)', lineHeight: 20 },
   micBtn: { width: 44, height: 44, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(200,130,40,0.18)' },
   micOn: { backgroundColor: 'rgba(232,98,10,0.18)', borderColor: '#E8620A' },
-  sendBtn: { width: 44, height: 44, borderRadius: 13, backgroundColor: '#E8620A', alignItems: 'center', justifyContent: 'center', elevation: 5, shadowColor: '#E8620A', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.45, shadowRadius: 5 },
-  sendOff: { backgroundColor: 'rgba(232,98,10,0.2)', elevation: 0, shadowOpacity: 0 },
+  sendBtn: { width: 44, height: 44, borderRadius: 13, backgroundColor: '#E8620A', alignItems: 'center', justifyContent: 'center', elevation: 5 },
+  sendOff: { backgroundColor: 'rgba(232,98,10,0.2)', elevation: 0 },
   sendIco: { color: '#fff', fontSize: 28, fontWeight: '700', marginBottom: 2 },
 });
