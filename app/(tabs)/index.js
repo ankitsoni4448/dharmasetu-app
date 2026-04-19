@@ -65,8 +65,21 @@ const FESTIVALS_2025_2026 = [
   { date:'2025-11-05', name:'Bhai Dooj', deity:'Yama' },
   { date:'2026-01-14', name:'Makar Sankranti', deity:'Surya' },
   { date:'2026-02-26', name:'Maha Shivaratri', deity:'Shiva' },
-  { date:'2026-03-25', name:'Holi', deity:'Krishna' },
+  { date:'2026-03-19', name:'Holi', deity:'Krishna' },
+  { date:'2026-03-30', name:'Gudi Padwa / Ugadi', deity:'Brahma' },
   { date:'2026-04-03', name:'Ram Navami', deity:'Ram' },
+  { date:'2026-04-10', name:'Hanuman Jayanti', deity:'Hanuman' },
+  // Akshaya Tritiya — April 19, 2026 (today — very auspicious)
+  { date:'2026-04-19', name:'Akshaya Tritiya', deity:'Vishnu' },
+  { date:'2026-05-04', name:'Buddha Purnima', deity:'Universal' },
+  { date:'2026-06-24', name:'Guru Purnima', deity:'Guru' },
+  { date:'2026-07-02', name:'Rath Yatra', deity:'Jagannath' },
+  { date:'2026-08-05', name:'Raksha Bandhan', deity:'Vishnu' },
+  { date:'2026-08-14', name:'Janmashtami', deity:'Krishna' },
+  { date:'2026-08-22', name:'Ganesh Chaturthi', deity:'Ganesh' },
+  { date:'2026-10-07', name:'Navratri Begins', deity:'Durga' },
+  { date:'2026-10-15', name:'Dussehra', deity:'Ram' },
+  { date:'2026-11-08', name:'Diwali', deity:'Lakshmi' },
 ];
 
 const EKADASHI_2025_2026 = [
@@ -94,6 +107,24 @@ const EKADASHI_2025_2026 = [
   { date:'2026-02-21', name:'Amalaki Ekadashi' },
   { date:'2026-03-08', name:'Papmochani Ekadashi' },
   { date:'2026-03-23', name:'Kamada Ekadashi' },
+  { date:'2026-04-07', name:'Varuthini Ekadashi' },
+  { date:'2026-04-22', name:'Mohini Ekadashi' },
+  { date:'2026-05-06', name:'Apara Ekadashi' },
+  { date:'2026-05-22', name:'Nirjala Ekadashi' },
+  { date:'2026-06-04', name:'Yogini Ekadashi' },
+  { date:'2026-06-20', name:'Devshayani Ekadashi' },
+  { date:'2026-07-04', name:'Kamika Ekadashi' },
+  { date:'2026-07-19', name:'Shravana Putrada' },
+  { date:'2026-08-03', name:'Aja Ekadashi' },
+  { date:'2026-08-17', name:'Parsva Ekadashi' },
+  { date:'2026-09-01', name:'Indira Ekadashi' },
+  { date:'2026-09-16', name:'Papankusha Ekadashi' },
+  { date:'2026-10-01', name:'Rama Ekadashi' },
+  { date:'2026-10-16', name:'Devutthana Ekadashi' },
+  { date:'2026-10-31', name:'Utpanna Ekadashi' },
+  { date:'2026-11-14', name:'Mokshada Ekadashi' },
+  { date:'2026-11-30', name:'Saphala Ekadashi' },
+  { date:'2026-12-14', name:'Putrada Ekadashi' },
 ];
 
 // ════════════════════════════════════════════════════════
@@ -943,16 +974,28 @@ export default function HomeScreen() {
     const todayISO = today.toISOString().slice(0,10);
     const todayStr = today.toLocaleDateString(isH?'hi-IN':'en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
     const allEvents=[...FESTIVALS_2025_2026.map(e=>({...e,type:'festival'})),...EKADASHI_2025_2026.map(e=>({...e,type:'ekadashi',deity:'Vishnu'}))];
-    const next7 = Array.from({length:7},(_,i)=>{const d=new Date(today);d.setDate(d.getDate()+i);return d.toISOString().slice(0,10);});
-    const upcoming = allEvents.filter(e=>next7.includes(e.date)).sort((a,b)=>a.date.localeCompare(b.date));
+    // Look 30 days ahead so upcoming festivals are always visible
+    const next30 = Array.from({length:30},(_,i)=>{const d=new Date(today);d.setDate(d.getDate()+i);return d.toISOString().slice(0,10);});
+    const upcoming = allEvents.filter(e=>next30.includes(e.date)).sort((a,b)=>a.date.localeCompare(b.date));
     const todayEvents = upcoming.filter(e=>e.date===todayISO);
-    const futureEvents = upcoming.filter(e=>e.date!==todayISO).slice(0,5);
+    const futureEvents = upcoming.filter(e=>e.date!==todayISO).slice(0,6);
     let msg=`📅 ${todayStr}\n\n`;
-    if(todayEvents.length>0){msg+=isH?'🌟 आज:\n':'🌟 TODAY:\n';todayEvents.forEach(e=>{msg+=`• ${e.name}${e.deity?` (${e.deity})`:''}\n`;});msg+='\n';}
-    else{msg+=isH?'☀️ आज कोई बड़ा पर्व नहीं।\n\n':'☀️ No major festival today.\n\n';}
+    if(todayEvents.length>0){
+      msg+=isH?'🌟 आज:\n':'🌟 TODAY:\n';
+      todayEvents.forEach(e=>{msg+=`• ${e.name}${e.deity?` (${e.deity})`:''}\n`;});
+      msg+='\n';
+    } else {
+      msg+=isH?'☀️ आज कोई बड़ा पर्व नहीं।\n\n':'☀️ No major festival today.\n\n';
+    }
     if(futureEvents.length>0){
-      msg+=isH?'📆 आने वाले पर्व (अगले 7 दिन):\n':'📆 UPCOMING (next 7 days):\n';
-      futureEvents.forEach(e=>{const d=new Date(e.date);const dStr=d.toLocaleDateString(isH?'hi-IN':'en-IN',{weekday:'short',day:'numeric',month:'short'});msg+=`• ${dStr} — ${e.name}\n`;});
+      msg+=isH?'📆 आने वाले पर्व (अगले 30 दिन):\n':'📆 UPCOMING (next 30 days):\n';
+      futureEvents.forEach(e=>{
+        const d=new Date(e.date);
+        const dStr=d.toLocaleDateString(isH?'hi-IN':'en-IN',{weekday:'short',day:'numeric',month:'short'});
+        const daysAway=Math.round((d-today)/(1000*60*60*24));
+        const badge=daysAway===1?(isH?'कल':'tomorrow'):daysAway===2?(isH?'परसों':'in 2 days'):`${daysAway}d`;
+        msg+=`• ${dStr} (${badge}) — ${e.name}\n`;
+      });
       msg+='\n';
     }
     msg+=isH?`🔥 Streak: ${streak} दिन!\n🛡️ नया Viral झूठ — DharmaChat में देखें!`:`🔥 Streak: ${streak} days!\n🛡️ Check latest viral lies in DharmaChat!`;

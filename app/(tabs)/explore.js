@@ -3,6 +3,7 @@
 // APIs: Groq (primary) → Gemini (backup) → Anthropic (tertiary)
 // Full language support — Hindi, English, Regional
 // ════════════════════════════════════════════════════════
+import { GROQ_KEY, GEM_KEY } from '../../config_keys';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -15,11 +16,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SW } = Dimensions.get('window');
-
-// ─── ALL 3 API KEYS ───────────────────────────────────────
-const GROQ_KEY      = 'gsk_Mrz5mjNdV.....';
-const ANTHROPIC_KEY = 'sk-ant-api03-....-pr8HDAXFjv1QJHqVIn2MqcIWZGwb_4FJGRMaGpMId0QGb5xSQ-oW-2ZwAA';
-const GEM_KEY       = 'AIzaSyB_....._BgdWUmLzGE';
 
 // ─── RATE LIMITER ─────────────────────────────────────────
 const Sec = {

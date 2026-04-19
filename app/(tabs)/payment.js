@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ── CONFIG — change this UPI ID to YOUR UPI ID ──────────
 const BACKEND_URL = 'https://dharmasetu-backend-2c65.onrender.com';
-const YOUR_UPI_ID = '9115512448@axldemo'; // CHANGE THIS to your UPI ID e.g. yourname@okicici
+const YOUR_UPI_ID = '9115512448@axl'; // CHANGE THIS to your UPI ID e.g. yourname@okicici
 
 // ── DEFAULT PLANS (used if backend is offline) ───────────
 const DEFAULT_PLANS = [

@@ -41,3 +41,10 @@ app-example
 # generated native folders
 /ios
 /android
+
+# secret environment files
+.env
+.env.local
+.env.production
+*.env
+config_keys.js
