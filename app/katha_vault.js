@@ -23,7 +23,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ─── SECURE API KEYS (from config_keys.js — never hardcoded) ────
-import { GROQ_KEY, GEM_KEY, BACKEND_URL } from '../../config_keys';
+import { GROQ_KEY, GEM_KEY, BACKEND_URL } from '../config_keys';
 
 // ─── ALL 6 SCRIPTURES ────────────────────────────────────────────
 const SCRIPTURES = [
@@ -387,11 +387,24 @@ async function waitForQueue(onProgress, isH) {
   _generationInProgress = true;
 }
 
-// ─── CHUNK GENERATION: 10 verses per call, 15s between chunks ────
-const CHUNK = 10;
+// ─── VERSE COUNT MASTER MAP (prevents missing shlokas) ──────────
+// Source of truth: if AI gives fewer shlokas, we detect and note it
+const VERSE_MASTER = {
+  bhagavad_gita: {1:47,2:72,3:43,4:42,5:29,6:47,7:30,8:28,9:34,10:42,11:55,12:20,13:34,14:27,15:20,16:24,17:28,18:78},
+  valmiki_ramayana: {1:77,2:119,3:75,4:67,5:68,6:131,7:111},
+  ramcharitmanas: {1:360,2:326,3:46,4:30,5:60,6:117,7:130},
+  mahabharata: {1:227,2:79,3:317,4:72,5:199,6:122,7:203,8:96,9:64,10:18,11:27,12:365,13:168,14:96,15:47,16:9,17:3,18:5},
+  srimad_bhagavatam: {1:19,2:10,3:33,4:31,5:26,6:19,7:15,8:24,9:24,10:90,11:31,12:13},
+  upanishads: {1:18,2:35,3:119,4:67,5:64,6:12,7:34,8:33,9:154,10:150},
+};
+
+// ─── CHUNK GENERATION: 5 verses per call (smaller = complete coverage) ──
+// Reduced from 10 to 5 so AI never skips shlokas — more API calls but 100% coverage
+const CHUNK = 5;
 async function generateFull(sc, unit, lang, onProgress) {
   const isH = lang === 'hindi';
-  const total = unit.s || 20;
+  // Use master map for exact count, fallback to unit.s
+  const total = (VERSE_MASTER[sc.id] && VERSE_MASTER[sc.id][unit.n]) || unit.s || 20;
   const chunks = [];
   const numChunks = Math.ceil(total / CHUNK);
 
@@ -406,29 +419,58 @@ async function generateFull(sc, unit, lang, onProgress) {
       const { sys, user } = buildScholarlyPrompt(sc, unit, lang, from, to);
       let chunk = null;
 
-      // Try Gemini first, fallback to Groq — both respect cooldowns
-      try {
-        console.log(`[Katha] Trying Gemini... chunk ${i+1}/${numChunks}`);
-        chunk = await callGemini(sys, user);
-      } catch (e1) {
-        console.log(`[Katha] Gemini failed, trying Groq... (${e1.message})`);
+      // Smart API selection: skip Gemini entirely if on cooldown, go straight to Groq
+      const geminiAvailable = !isOnCooldown('gemini');
+      const groqAvailable   = !isOnCooldown('groq');
+
+      if (geminiAvailable) {
+        try {
+          console.log(`[Katha] Trying Gemini... chunk ${i+1}/${numChunks}`);
+          chunk = await callGemini(sys, user);
+        } catch (e1) {
+          console.log(`[Katha] Gemini failed (${e1.message}), trying Groq...`);
+          if (groqAvailable) {
+            try {
+              chunk = await callGroq(sys, user);
+            } catch (e2) {
+              console.log(`[Katha] Groq failed (${e2.message})`);
+              throw new Error(`API_FAILED: Both APIs unavailable`);
+            }
+          } else {
+            throw new Error(`API_FAILED: Groq also on cooldown`);
+          }
+        }
+      } else if (groqAvailable) {
+        // Gemini on cooldown — skip directly to Groq, no wasted attempt
+        console.log(`[Katha] Gemini on cooldown, using Groq directly... chunk ${i+1}/${numChunks}`);
         try {
           chunk = await callGroq(sys, user);
         } catch (e2) {
-          console.log(`[Katha] Groq failed, using fallback... (${e2.message})`);
-          throw new Error(`API_FAILED: ${e2.message}`);
+          console.log(`[Katha] Groq failed (${e2.message})`);
+          throw new Error(`API_FAILED: Groq unavailable`);
         }
+      } else {
+        // Both on cooldown — wait for shortest cooldown to expire
+        const geminiWait = apiCooldown.gemini - Date.now();
+        const groqWait   = apiCooldown.groq   - Date.now();
+        const waitMs     = Math.min(geminiWait, groqWait) + 1000;
+        const waitSec    = Math.ceil(waitMs / 1000);
+        onProgress(isH
+          ? `⏳ दोनों API व्यस्त हैं — ${waitSec} सेकंड में जारी रहेगा...`
+          : `⏳ Both APIs busy — continuing in ${waitSec} seconds...`);
+        console.log(`[Katha] Both on cooldown, waiting ${waitMs}ms`);
+        await sleep(waitMs);
+        i--; // retry this chunk
+        continue;
       }
 
       chunks.push(chunk);
 
-      // Mandatory 15s delay between chunks to stay within free-tier rate limits
-      // (Gemini free: 15 requests/min = 4s min, we use 15s for safety)
+      // 15s delay between chunks — required for Gemini free tier (15 req/min limit)
       if (i < numChunks - 1) {
-        const remaining = numChunks - i - 1;
         onProgress(isH
-          ? `✅ भाग ${i+1}/${numChunks} पूर्ण — अगला भाग 15 सेकंड में...`
-          : `✅ Part ${i+1}/${numChunks} done — next part in 15 seconds...`);
+          ? `✅ भाग ${i+1}/${numChunks} पूर्ण — अगला 15 सेकंड में...`
+          : `✅ Part ${i+1}/${numChunks} done — next in 15 sec...`);
         await sleep(CHUNK_DELAY);
       }
     }
@@ -465,22 +507,33 @@ async function downloadChapter(sc, unit, lang, content) {
     const isH = lang === 'hindi';
     const title = isH ? unit.tH : unit.t;
     const scName = isH ? sc.nameHi : sc.name;
-    const filename = `${sc.id}_${unit.n}_${lang}.txt`;
-    const fileUri = FileSystem.documentDirectory + filename;
+    const filename = `DharmaSetu_${sc.id}_${unit.n}_${lang}.txt`;
+    const baseDir = FileSystem.documentDirectory || FileSystem.cacheDirectory || '';
+    const fileUri = baseDir + filename;
     const header = `🕉 DharmaSetu — ${scName}\n${title}\n${'='.repeat(50)}\n\n`;
-    await FileSystem.writeAsStringAsync(fileUri, header + content, { encoding: FileSystem.EncodingType.UTF8 });
+    // Use string 'utf8' — FileSystem.EncodingType.UTF8 is undefined in some Expo SDK versions
+    await FileSystem.writeAsStringAsync(fileUri, header + content, { encoding: 'utf8' });
     const canShare = await Sharing.isAvailableAsync();
     if (canShare) {
       await Sharing.shareAsync(fileUri, {
         mimeType: 'text/plain',
-        dialogTitle: `Download ${scName} — ${title}`,
+        dialogTitle: `${scName} — ${title}`,
         UTI: 'public.plain-text',
       });
     } else {
-      Alert.alert('Downloaded', `Saved as: ${filename}`);
+      Alert.alert(isH ? 'Download हो गया' : 'Downloaded', filename);
     }
   } catch (e) {
-    Alert.alert('Error', 'Could not download: ' + e.message);
+    // Fallback: native Share as plain text if FileSystem fails
+    try {
+      const isH = lang === 'hindi';
+      await Share.share({
+        message: content.slice(0, 50000),
+        title: `DharmaSetu — ${isH ? unit.tH : unit.t}`,
+      });
+    } catch {
+      Alert.alert('Error', e.message);
+    }
   }
 }
 
