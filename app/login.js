@@ -3,6 +3,7 @@
 // Time: slots OR exact time input (user chooses)
 // Logout fix: saves permanently by phone number
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { registerUserToBackend } from '../register_backend';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
@@ -12,6 +13,7 @@ import {
   TouchableOpacity, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 
 // ── KUNDLI DATA ──────────────────────────────────────────────────────
 const RASHIS = ['Mesh','Vrishabh','Mithun','Kark','Simha','Kanya','Tula','Vrishchik','Dhanu','Makar','Kumbh','Meen'];
@@ -216,6 +218,7 @@ export default function LoginScreen() {
     await AsyncStorage.setItem(`ds_acc_${phone}`,JSON.stringify(userData));
     await AsyncStorage.setItem('dharmasetu_pts','0');
     await AsyncStorage.setItem('dharmasetu_streak_count','0');
+    registerUserToBackend(userData); // send to backend in background
     setLoading(false); router.replace('/(tabs)');
   };
 
