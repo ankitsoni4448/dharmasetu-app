@@ -14,6 +14,7 @@ import {
   Vibration, View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { submitFeedback } from '../register_backend';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -218,11 +219,20 @@ async function saveAns(q, a, src) {
 }
 async function storeFb(q, a, rating, reason) {
   try {
+    // Save locally (existing behavior)
     const arr = JSON.parse(await AsyncStorage.getItem('dharmasetu_feedback') || '[]');
     arr.push({ q, a, rating, reason, at: new Date().toISOString() });
     await AsyncStorage.setItem('dharmasetu_feedback', JSON.stringify(arr.slice(-200)));
     if (rating === 'up') await addPts('thumbsup');
     if (rating === 'down' && reason) await addPts('feedback_given');
+ 
+    // === NEW: Also send to backend/Supabase so it shows in admin dashboard ===
+    if (rating === 'down') {
+      const raw = await AsyncStorage.getItem('dharmasetu_user');
+      const userPhone = raw ? (JSON.parse(raw)?.phone || '') : '';
+      await submitFeedback(q, a, rating, reason, userPhone);
+    }
+    // =========================================================================
   } catch { }
 }
 async function doShare(question, answer, src) {

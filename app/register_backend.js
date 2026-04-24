@@ -1,72 +1,72 @@
 // ════════════════════════════════════════════════════════════════
-// DharmaSetu — Register Backend
+// DharmaSetu — register_backend.js
 //
-// FILE LOCATION: D:\DharmaSetu\dharmasetu-app\app\register_backend.js
+// EXACT FILE LOCATION:
+//   D:\DharmaSetu\dharmasetu-app\app\register_backend.js
 //
-// HOW TO USE IN login.js:
-// Step 1: Add this import at the TOP of login.js:
-//   import { registerUserToBackend, trackActivity } from './register_backend';
+// ── HOW TO ADD TO login.js ─────────────────────────────────────
+// Step 1: Open D:\DharmaSetu\dharmasetu-app\app\login.js
+// Step 2: Add this import at the very top of the file (line 1-5 area):
 //
-// Step 2: Inside your verifyAndSave() function, AFTER the line:
-//   await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(userData));
-// ADD this line:
-//   registerUserToBackend(userData); // non-blocking - won't break login if offline
+//   import { registerUserToBackend } from './register_backend';
 //
-// That's it! This file handles everything else automatically.
+// Step 3: Find the function called verifyAndSave()
+//         After this line:
+//           await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(userData));
+//         Add this line immediately after:
+//           registerUserToBackend(userData);
+//
+// ── HOW TO ADD FEEDBACK TO explore.js ─────────────────────────
+// In explore.js, find the storeFb function and add this after it:
+//
+//   import { submitFeedback } from './register_backend';
+//
+// Then in storeFb(), add:
+//   submitFeedback(q, a, rating, reason, user?.phone || '');
 // ════════════════════════════════════════════════════════════════
 
 const BACKEND_URL = 'https://dharmasetu-backend-2c65.onrender.com';
 
 /**
- * Call this after user completes login/signup.
- * Non-blocking — if backend is offline, login still works normally.
- *
- * @param {Object} userData - The user object saved to AsyncStorage
- * Example userData shape:
- * {
- *   phone: '9876543210',
- *   name: 'Ankit Soni',
- *   rashi: 'Mesh',
- *   nakshatra: 'Ashwini',
- *   deity: 'Hanuman',
- *   language: 'hindi',
- *   birthCity: 'Indore',
- *   dob: '1990-01-15',
- *   plan: 'free',
- * }
+ * Call this after user completes login/signup in login.js
+ * Non-blocking — if backend is offline, login still works normally
  */
 export async function registerUserToBackend(userData) {
+  if (!userData || !userData.phone) return;
   try {
-    const response = await fetch(`${BACKEND_URL}/users/register`, {
+    const body = {
+      phone:       userData.phone      || '',
+      name:        userData.name       || 'DharmaSetu User',
+      email:       userData.email      || '',
+      rashi:       userData.rashi      || 'Mesh',
+      nakshatra:   userData.nakshatra  || 'Ashwini',
+      deity:       userData.deity      || 'Hanuman',
+      language:    userData.language   || 'hindi',
+      birthCity:   userData.birthCity  || userData.birth_city || '',
+      dob:         userData.dob        || '',
+      firebaseUid: userData.firebaseUid || userData.firebase_uid || '',
+    };
+    const res = await fetch(`${BACKEND_URL}/users/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        phone:     userData.phone      || '',
-        name:      userData.name       || '',
-        rashi:     userData.rashi      || 'Mesh',
-        nakshatra: userData.nakshatra  || 'Ashwini',
-        deity:     userData.deity      || 'Hanuman',
-        language:  userData.language   || 'hindi',
-        birthCity: userData.birthCity  || '',
-        dob:       userData.dob        || '',
-      }),
+      body: JSON.stringify(body),
     });
-    const data = await response.json();
+    const data = await res.json();
     if (data.success) {
-      console.log('[Backend] User registered:', data.isNew ? 'NEW USER' : 'returning user');
+      console.log('[Backend] User synced:', data.isNew ? '✅ New user created' : '✅ Existing user updated');
+    } else {
+      console.log('[Backend] Register response:', data.error);
     }
-  } catch (error) {
-    // Silent fail — login works even if backend is offline
-    console.log('[Backend] Registration skipped (offline):', error.message);
+  } catch (err) {
+    // Silent fail — never break login
+    console.log('[Backend] Register skipped (offline):', err.message);
   }
 }
 
 /**
- * Track user activity — call anywhere in the app.
- * Types: 'question', 'checkin', 'factcheck', 'katha'
- *
- * @param {string} phone - User's phone number
- * @param {string} type  - Activity type
+ * Track user activity — call from DharmaChat, Home, etc.
+ * @param {string} phone - user phone number
+ * @param {string} type  - 'question' | 'checkin' | 'factcheck' | 'katha'
  */
 export async function trackActivity(phone, type = 'checkin') {
   if (!phone) return;
@@ -82,22 +82,35 @@ export async function trackActivity(phone, type = 'checkin') {
 }
 
 /**
- * Submit feedback about a wrong AI answer.
- * Call this when user taps 👎 in DharmaChat.
+ * Submit feedback when user taps 👎 in DharmaChat
+ * Call this from explore.js storeFb() function
  *
- * @param {string} question       - The question that was asked
- * @param {string} wrongAnswer    - The AI answer that was wrong
- * @param {string} reason         - Why it's wrong (optional)
- * @param {string} phone          - User's phone (optional)
+ * @param {string} question    - The question that was asked
+ * @param {string} wrongAnswer - The AI answer
+ * @param {string} rating      - 'up' or 'down'
+ * @param {string} reason      - Why it's wrong
+ * @param {string} phone       - User's phone number
  */
-export async function submitFeedback(question, wrongAnswer, reason = '', phone = '') {
+export async function submitFeedback(question, wrongAnswer, rating, reason, phone) {
+  // Only send feedback for thumbs down
+  if (rating !== 'down') return;
   try {
-    await fetch(`${BACKEND_URL}/feedback`, {
+    const res = await fetch(`${BACKEND_URL}/feedback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question, wrongAnswer, reason, phone }),
+      body: JSON.stringify({
+        question:    question    || '',
+        wrongAnswer: wrongAnswer || '',
+        reason:      reason      || '',
+        phone:       phone       || '',
+        rating:      rating      || 'down',
+      }),
     });
-  } catch {
-    // Silent fail
+    const data = await res.json();
+    if (data.success) {
+      console.log('[Backend] Feedback saved to Supabase:', data.id);
+    }
+  } catch (err) {
+    console.log('[Backend] Feedback submit skipped:', err.message);
   }
 }
