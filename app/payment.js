@@ -1,7 +1,7 @@
 // ════════════════════════════════════════════════════════════════
 // DharmaSetu — Payment Screen FINAL
 //
-// FILE LOCATION: D:\DharmaSetu\dharmasetu-app\app\(tabs)\payment.js
+// FILE LOCATION: D:\DharmaSetu\dharmasetu-app\app\payment.js
 //
 // HOW IT WORKS:
 // - Fetches payment config from backend (PhonePe UPI or Razorpay)

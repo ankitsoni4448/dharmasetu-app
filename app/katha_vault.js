@@ -191,7 +191,7 @@ async function downloadAsPDF(sc, unit, lang, verses, userProfile) {
         : 'PDF Download is for Premium members.\nBasic ₹99/mo or Pro ₹249/mo',
       [
         { text: isH ? 'बाद में' : 'Later', style: 'cancel' },
-        { text: '⭐ Upgrade', onPress: () => router.push('/(tabs)/payment') },
+        { text: '⭐ Upgrade', onPress: () => router.push('/payment') },
       ]
     );
     return;

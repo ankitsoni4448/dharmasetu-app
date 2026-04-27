@@ -59,7 +59,7 @@ const DAILY_SHLOKS = [
 const QUICK_ACTIONS = [
   { id: 'chat',    emoji: '💬', hi: 'DharmaChat',    en: 'DharmaChat',    route: '/(tabs)/explore',    color: '#E8620A' },
   { id: 'katha',   emoji: '📖', hi: 'कथा वॉल्ट',   en: 'Katha Vault',   route: '/katha',             color: '#C9830A' },
-  { id: 'payment', emoji: '⭐', hi: 'Premium',       en: 'Premium',       route: '/(tabs)/payment',    color: '#27AE60' },
+  { id: 'payment', emoji: '⭐', hi: 'Premium',       en: 'Premium',       route: '/payment',    color: '#27AE60' },
   { id: 'kundli',  emoji: '🔯', hi: 'कुंडली',       en: 'Kundli',        route: '/kundli',            color: '#6B21A8' },
   { id: 'mantra',  emoji: '📿', hi: 'मंत्र',         en: 'Mantras',       route: '/mantra_library',    color: '#3498DB' },
   { id: 'factcheck',emoji: '🛡️',hi: 'Fact Check',  en: 'Fact Check',    action: 'factcheck',         color: '#9B59B6' },
@@ -516,7 +516,7 @@ function QuickActions({ lang }) {
             onPress={async () => {
               if (qa.action === 'factcheck') {
                 await AsyncStorage.setItem('dharmasetu_mode', 'factcheck');
-                router.push('/(tabs)/explore');
+                router.push('/explore');
               } else {
                 router.push(qa.route);
               }
@@ -595,7 +595,7 @@ export default function HomeScreen() {
     if (presetQ) {
       await AsyncStorage.setItem('dharmasetu_preset_question', presetQ);
     }
-    router.push('/(tabs)/explore');
+    router.push('/explore');
   }, []);
 
   const isH = lang === 'hindi';

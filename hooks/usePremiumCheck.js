@@ -135,7 +135,7 @@ export function usePremiumCheck() {
   const goToPremium = () => {
     hidePaywall();
     setTimeout(() => {
-      try { router.push('/(tabs)/payment'); } catch { router.push('/payment'); }
+      router.push('/payment');
     }, 200);
   };
 
