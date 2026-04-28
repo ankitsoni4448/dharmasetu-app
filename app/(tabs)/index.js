@@ -58,7 +58,7 @@ const DAILY_SHLOKS = [
 // ── QUICK ACTIONS CONFIG ────────────────────────────────────────
 const QUICK_ACTIONS = [
   { id: 'chat',    emoji: '💬', hi: 'DharmaChat',    en: 'DharmaChat',    route: '/(tabs)/explore',    color: '#E8620A' },
-  { id: 'katha',   emoji: '📖', hi: 'कथा वॉल्ट',   en: 'Katha Vault',   route: '/katha',             color: '#C9830A' },
+  { id: 'katha',   emoji: '📖', hi: 'कथा वॉल्ट',   en: 'Katha Vault',   route: '/katha_vault',       color: '#C9830A' },
   { id: 'payment', emoji: '⭐', hi: 'Premium',       en: 'Premium',       route: '/payment',    color: '#27AE60' },
   { id: 'kundli',  emoji: '🔯', hi: 'कुंडली',       en: 'Kundli',        route: '/kundli',            color: '#6B21A8' },
   { id: 'mantra',  emoji: '📿', hi: 'मंत्र',         en: 'Mantras',       route: '/mantra_library',    color: '#3498DB' },

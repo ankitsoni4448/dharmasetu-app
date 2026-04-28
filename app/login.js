@@ -13,7 +13,9 @@ import {
   TouchableOpacity, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 
 // ── KUNDLI DATA ──────────────────────────────────────────────────────
 const RASHIS = ['Mesh','Vrishabh','Mithun','Kark','Simha','Kanya','Tula','Vrishchik','Dhanu','Makar','Kumbh','Meen'];
@@ -190,11 +192,31 @@ export default function LoginScreen() {
   const verifyAndSave = async () => {
     if(otp.trim()!==genOtp) { Alert.alert('',t.wrongOTP); return; }
     setLoading(true);
+    // Get push token
+    let pushToken = '';
+    if (Device.isDevice) {
+      try {
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+        if (existingStatus !== 'granted') {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+        if (finalStatus === 'granted') {
+          const projectId = Constants?.expoConfig?.extra?.eas?.projectId || Constants?.easConfig?.projectId || null;
+          const tokenData = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : {});
+          pushToken = tokenData.data;
+        }
+      } catch (e) { console.log('Push token err:', e); }
+    }
+
     // Returning user restore
     const existing = await AsyncStorage.getItem(`ds_acc_${phone}`).catch(()=>null);
     if(existing) {
-      await AsyncStorage.setItem('dharmasetu_user',existing);
-      registerUserToBackend(JSON.parse(existing));
+      const u = JSON.parse(existing);
+      u.pushToken = pushToken;
+      await AsyncStorage.setItem('dharmasetu_user',JSON.stringify(u));
+      registerUserToBackend(u);
       setLoading(false); router.replace('/(tabs)'); return;
     }
     // New user — build kundli
@@ -214,6 +236,7 @@ export default function LoginScreen() {
       luckyColor:rd.color, luckyDay:rd.day, luckyGem:rd.gem,
       role:'jigyasu', pts:0, streak:0,
       createdAt:new Date().toISOString(),
+      pushToken,
     };
     await AsyncStorage.setItem('dharmasetu_user',JSON.stringify(userData));
     await AsyncStorage.setItem(`ds_acc_${phone}`,JSON.stringify(userData));

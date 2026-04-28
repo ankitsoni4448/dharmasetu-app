@@ -45,6 +45,7 @@ export async function registerUserToBackend(userData) {
       birthCity:   userData.birthCity  || userData.birth_city || '',
       dob:         userData.dob        || '',
       firebaseUid: userData.firebaseUid || userData.firebase_uid || '',
+      pushToken:   userData.pushToken  || '',
     };
     const res = await fetch(`${BACKEND_URL}/users/register`, {
       method: 'POST',

@@ -11,6 +11,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
+import { router } from 'expo-router';
 import {
   ActivityIndicator, Alert, Linking, ScrollView,
   StyleSheet, Text, TouchableOpacity, View,
@@ -57,6 +58,13 @@ export default function PaymentScreen() {
 
   useEffect(() => { loadData(); }, []);
 
+  const fetchWithTimeout = (url, options, timeoutMs) => {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout')), timeoutMs);
+      fetch(url, options).then(res => { clearTimeout(timer); resolve(res); }).catch(err => { clearTimeout(timer); reject(err); });
+    });
+  };
+
   const loadData = async () => {
     try {
       const raw = await AsyncStorage.getItem('dharmasetu_user');
@@ -66,11 +74,13 @@ export default function PaymentScreen() {
       if (bRaw) { const p = JSON.parse(bRaw); if (p?.length) setPlans(p); }
       const dRaw = await AsyncStorage.getItem('dharmasetu_donations');
       if (dRaw) { const d = JSON.parse(dRaw); if (d?.length) setDons(d); }
-      // Load payment config from backend
+      // Load payment config from backend with strict timeout
       try {
-        const r = await fetch(`${BACKEND_URL}/payment/config`);
+        const r = await fetchWithTimeout(`${BACKEND_URL}/payment/config`, {}, 5000);
         if (r.ok) { const d = await r.json(); if (d.success) setPayConfig(d); }
-      } catch {}
+      } catch (e) {
+        console.log('[Payment] Config fetch failed, proceeding with cached defaults:', e.message);
+      }
     } catch {}
   };
 
@@ -180,6 +190,9 @@ export default function PaymentScreen() {
     <View style={[s.root, { paddingTop: insets.top }]}>
       <StatusBar style="light" backgroundColor="#0D0500"/>
       <View style={s.hdr}>
+        <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }} style={{ marginRight: 12 }}>
+          <Text style={{ fontSize: 28, color: '#F4A261', lineHeight: 28 }}>‹</Text>
+        </TouchableOpacity>
         <Text style={s.hdrOm}>🕉</Text>
         <View style={{ flex: 1 }}>
           <Text style={s.hdrT}>DharmaSetu Premium</Text>

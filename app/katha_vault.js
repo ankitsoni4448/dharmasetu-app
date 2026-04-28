@@ -12,6 +12,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { usePremiumCheck } from '../hooks/usePremiumCheck';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, Animated, Modal,
@@ -181,19 +182,9 @@ async function fetchChapter(sc, unit, lang) {
 // ═══════════════════════════════════════════════════════════════
 // PDF DOWNLOAD — Premium only
 // ═══════════════════════════════════════════════════════════════
-async function downloadAsPDF(sc, unit, lang, verses, userProfile) {
-  if (!userProfile || (userProfile.plan !== 'basic' && userProfile.plan !== 'pro')) {
-    const isH = userProfile?.language === 'hindi';
-    Alert.alert(
-      '🙏 Premium Feature',
-      isH
-        ? 'PDF Download Premium सदस्यों के लिए है।\nPlans: Basic ₹99/mo या Pro ₹249/mo'
-        : 'PDF Download is for Premium members.\nBasic ₹99/mo or Pro ₹249/mo',
-      [
-        { text: isH ? 'बाद में' : 'Later', style: 'cancel' },
-        { text: '⭐ Upgrade', onPress: () => router.push('/payment') },
-      ]
-    );
+async function downloadAsPDF(sc, unit, lang, verses, isFeatureAllowed, showPaywall) {
+  if (!isFeatureAllowed('kathaVaultDownload')) {
+    showPaywall('kathaVaultDownload');
     return;
   }
 
@@ -372,20 +363,16 @@ const vc = StyleSheet.create({
 // ═══════════════════════════════════════════════════════════════
 // CHAPTER READER
 // ═══════════════════════════════════════════════════════════════
-function ChapterReader({ visible, onClose, sc, unit, lang }) {
+function ChapterReader({ visible, onClose, sc, unit, lang, isFeatureAllowed, showPaywall }) {
   const [verses,   setVerses]   = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [notReady, setNotReady] = useState(false);
-  const userProfileRef = useRef(null);
   const insets = useSafeAreaInsets();
   const isH = lang === 'hindi';
 
   useEffect(() => {
     if (!visible || !sc || !unit) return;
     setVerses([]); setLoading(true); setNotReady(false);
-    AsyncStorage.getItem('dharmasetu_user').then(raw => {
-      if (raw) userProfileRef.current = JSON.parse(raw);
-    });
     load();
   }, [visible, sc?.id, unit?.n, lang]);
 
@@ -420,7 +407,7 @@ function ChapterReader({ visible, onClose, sc, unit, lang }) {
           </View>
           {verses.length > 0 && (
             <TouchableOpacity style={cr.dlBtn}
-              onPress={() => downloadAsPDF(sc, unit, lang, verses, userProfileRef.current)}>
+              onPress={() => downloadAsPDF(sc, unit, lang, verses, isFeatureAllowed, showPaywall)}>
               <Text>⬇️</Text>
             </TouchableOpacity>
           )}
@@ -476,7 +463,7 @@ function ChapterReader({ visible, onClose, sc, unit, lang }) {
                 {verses.length > 0 && (
                   <TouchableOpacity
                     style={{ marginTop: 10, flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(232,98,10,0.1)', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9, borderWidth: 1, borderColor: 'rgba(232,98,10,0.25)' }}
-                    onPress={() => downloadAsPDF(sc, unit, lang, verses, userProfileRef.current)}>
+                    onPress={() => downloadAsPDF(sc, unit, lang, verses, isFeatureAllowed, showPaywall)}>
                     <Text>⬇️</Text>
                     <Text style={{ fontSize: 12, color: '#F4A261', fontWeight: '700' }}>
                       {isH ? 'PDF Download (Premium)' : 'Download PDF (Premium)'}
@@ -609,6 +596,7 @@ export default function KathaVault() {
   const [selUnit,    setSelUnit]   = useState(null);
   const [showUnits,  setShowUnits] = useState(false);
   const [showReader, setShowReader]= useState(false);
+  const { isFeatureAllowed, showPaywall, PaywallModal } = usePremiumCheck();
   const fade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -714,7 +702,10 @@ export default function KathaVault() {
         sc={selSc}
         unit={selUnit}
         lang={lang}
+        isFeatureAllowed={isFeatureAllowed}
+        showPaywall={showPaywall}
       />
+      <PaywallModal />
     </View>
   );
 }
