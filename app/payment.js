@@ -49,6 +49,7 @@ export default function PaymentScreen() {
   const [selPlan, setSelPlan] = useState(null);
   const [selDon, setSelDon] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [pendingOrderId, setPendingOrderId] = useState(null);
   const [user, setUser] = useState(null);
   const [currentPlan, setCurrentPlan] = useState('free');
   const [payConfig, setPayConfig] = useState({
@@ -90,7 +91,8 @@ export default function PaymentScreen() {
   const subscribeUPI = async (plan) => {
     const upiId = payConfig.phonepeUPI;
     if (!upiId) {
-      Alert.alert(isH ? 'Payment Setup' : 'Payment Setup', isH ? 'Payment method not configured. Please contact support.' : 'Payment not configured. Contact support.'); return;
+      Alert.alert(isH ? 'Payment Setup' : 'Payment Setup', isH ? 'Payment method not configured. Please contact support.' : 'Payment not configured. Contact support.');
+      return null;
     }
     const orderId = `upi_${Date.now()}`;
     // Log to backend
@@ -107,17 +109,12 @@ export default function PaymentScreen() {
         if (ppOk) await Linking.openURL(pp);
         else await Linking.openURL(`https://rzp.io/l/dharmasetu`);
       }
-      Alert.alert(
-        isH ? '🙏 भुगतान करें' : '🙏 Complete Payment',
-        isH ? `UPI ID: ${upiId}\nAmount: ₹${plan.price}\n\nPayment complete होने के बाद नीचे tap करें।` : `UPI ID: ${upiId}\nAmount: ₹${plan.price}\n\nTap below after payment is done.`,
-        [
-          { text: isH ? '✓ हो गया' : '✓ Done', onPress: () => activatePlan(plan, orderId) },
-          { text: isH ? 'बाद में' : 'Later', style: 'cancel' },
-        ]
-      );
+      // Inform user to verify payment later
+      Alert.alert(isH ? '🙏 भुगतान भेजा' : '🙏 Payment Sent', isH ? `UPI लिंक खोल दिया गया। भुगतान पूरा होने पर "I have paid" बटन दबाएँ।` : 'UPI link opened. Tap "I have paid" after completing payment.');
     } catch(e) {
       Alert.alert('UPI', isH ? `UPI ID: ${upiId}\nAmount: ₹${plan.price}\n\nManually pay and contact support.` : `Pay ₹${plan.price} to UPI: ${upiId}`);
     }
+    return orderId;
   };
 
   // ─── Subscribe via Razorpay ─────────────────────────────────────
@@ -131,23 +128,17 @@ export default function PaymentScreen() {
       });
       const data = await r.json();
       if (!data.success) throw new Error(data.error || 'Order creation failed');
-
       // Open Razorpay
       const rzpUrl = `https://api.razorpay.com/v1/checkout/embedded?key_id=${data.keyId}&order_id=${data.orderId}&amount=${data.amount}&currency=INR&name=DharmaSetu&description=${encodeURIComponent(plan.name+' Plan')}`;
       await Linking.openURL(rzpUrl);
-
-      Alert.alert(
-        isH ? '🙏 भुगतान' : '🙏 Payment',
-        isH ? 'Razorpay में payment complete करें। Done होने के बाद नीचे tap करें।' : 'Complete payment in Razorpay, then tap Done.',
-        [
-          { text: isH ? '✓ हो गया' : '✓ Done', onPress: () => activatePlan(plan, data.orderId) },
-          { text: isH ? 'बाद में' : 'Later', style: 'cancel' },
-        ]
-      );
+      Alert.alert(isH ? '🙏 भुगतान' : '🙏 Payment', isH ? 'Razorpay में भुगतान किया। "I have paid" बटन दबाएँ।' : 'Payment done in Razorpay. Tap "I have paid".');
+      return data.orderId;
     } catch(e) {
       Alert.alert(isH ? 'Error' : 'Error', e.message);
+      return null;
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const activatePlan = async (plan, orderId) => {
@@ -163,27 +154,41 @@ export default function PaymentScreen() {
   const handleSubscribe = async (plan) => {
     if (loading) return; setLoading(true);
     const method = payConfig.subscriptionPayment || 'upi';
-    if (method === 'razorpay' && payConfig.hasRazorpay) await subscribeRazorpay(plan);
-    else await subscribeUPI(plan);
+    let orderId = null;
+    if (method === 'razorpay' && payConfig.hasRazorpay) {
+      orderId = await subscribeRazorpay(plan);
+    } else {
+      orderId = await subscribeUPI(plan);
+    }
+    if (orderId) {
+      setPendingOrderId(orderId);
+      setSelPlan(plan);
+    }
     setLoading(false);
   };
 
-  const handleDonate = async (camp, amount) => {
-    const amt = parseInt(amount);
-    if (!amt || amt < 10) { Alert.alert('', isH ? '₹10 minimum' : 'Minimum ₹10'); return; }
-    setLoading(true);
-    const method = payConfig.donationPayment || 'upi';
-    const upiId = payConfig.phonepeUPI;
-    if (!upiId) { Alert.alert('', 'Payment not configured'); setLoading(false); return; }
-    const orderId = `don_${Date.now()}`;
-    await logToBackend('/payment/confirm', { orderId, phone: user?.phone || '', planId: 'donation_'+camp.id });
+  const verifyPayment = async () => {
+    if (!pendingOrderId || !selPlan) {
+      Alert.alert('Error', 'No pending payment to verify');
+      return;
+    }
     try {
-      const link = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=DharmaSetu+Seva&am=${amt}&cu=INR&tn=${encodeURIComponent('Donation: '+camp.name)}`;
-      const ok = await Linking.canOpenURL(link);
-      if (ok) await Linking.openURL(link); else await Linking.openURL('https://rzp.io/l/dharmasetu');
-      Alert.alert(isH ? '🙏 धन्यवाद!' : '🙏 Thank you!', isH ? `₹${amt} का दान ${camp.nameHi} के लिए।` : `₹${amt} donation to ${camp.name}.`);
-    } catch {}
-    setLoading(false);
+      const resp = await fetch(`${BACKEND_URL}/payment/verify`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: pendingOrderId, phone: user?.phone || '', planId: selPlan.id }),
+      });
+      const data = await resp.json();
+      if (data.success) {
+        await activatePlan(selPlan, pendingOrderId);
+        Alert.alert('🎉', 'Payment submitted. Awaiting approval');
+      } else {
+        Alert.alert('Error', data.error || 'Verification failed');
+      }
+    } catch (e) {
+      Alert.alert('Error', e.message);
+    }
+    setPendingOrderId(null);
+    setSelPlan(null);
   };
 
   return (
@@ -239,6 +244,11 @@ export default function PaymentScreen() {
                 )}
               </TouchableOpacity>
             ))}
+            {selPlan && pendingOrderId && (
+              <TouchableOpacity style={s.subBtn} onPress={verifyPayment} disabled={loading} activeOpacity={0.85}>
+                <Text style={s.subBtnT}>I have paid</Text>
+              </TouchableOpacity>
+            )}
             <Text style={s.note}>{isH?'💳 GPay, PhonePe, Paytm, Card — सब स्वीकार':'💳 GPay, PhonePe, Paytm, Cards accepted'}</Text>
           </View>
         )}

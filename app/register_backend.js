@@ -93,8 +93,6 @@ export async function trackActivity(phone, type = 'checkin') {
  * @param {string} phone       - User's phone number
  */
 export async function submitFeedback(question, wrongAnswer, rating, reason, phone) {
-  // Only send feedback for thumbs down
-  if (rating !== 'down') return;
   try {
     const res = await fetch(`${BACKEND_URL}/feedback`, {
       method: 'POST',
@@ -108,10 +106,10 @@ export async function submitFeedback(question, wrongAnswer, rating, reason, phon
       }),
     });
     const data = await res.json();
-    if (data.success) {
-      console.log('[Backend] Feedback saved to Supabase:', data.id);
-    }
+    console.log('[Backend] Feedback submit response:', data);
+    return data;
   } catch (err) {
     console.log('[Backend] Feedback submit skipped:', err.message);
+    throw err;
   }
 }

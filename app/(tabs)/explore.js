@@ -67,11 +67,11 @@ async function callBackendAI(messages, userProfile, mode, phone) {
       body: JSON.stringify({
         messages,
         userProfile: {
-          name:      userProfile?.name      || '',
-          rashi:     userProfile?.rashi     || '',
+          name: userProfile?.name || '',
+          rashi: userProfile?.rashi || '',
           nakshatra: userProfile?.nakshatra || '',
-          deity:     userProfile?.deity     || '',
-          language:  userProfile?.language  || 'hindi',
+          deity: userProfile?.deity || '',
+          language: userProfile?.language || 'hindi',
         },
         mode,
         phone: phone || '',
@@ -139,12 +139,12 @@ async function storeFb(q, a, rating, reason, phone) {
     const arr = JSON.parse(await AsyncStorage.getItem('dharmasetu_feedback') || '[]');
     arr.push({ q, a, rating, reason, at: new Date().toISOString() });
     await AsyncStorage.setItem('dharmasetu_feedback', JSON.stringify(arr.slice(-200)));
-    if (rating === 'up')   await addPts('thumbsup');
+    if (rating === 'up') await addPts('thumbsup');
     if (rating === 'down' && reason) await addPts('feedback_given');
     if (rating === 'down') {
       await submitFeedback(q, a, rating, reason, phone || '');
     }
-  } catch {}
+  } catch { }
 }
 
 async function doShare(question, answer, src) {
@@ -156,7 +156,7 @@ async function doShare(question, answer, src) {
       (src ? `📖 ${src}\n\n` : '') +
       `— DharmaSetu App 🙏 जय सनातन धर्म`;
     await Share.share({ message: txt, title: 'DharmaSetu' });
-  } catch {}
+  } catch { }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -263,20 +263,20 @@ function FbModal({ visible, onClose, onSubmit, lang }) {
 }
 
 const fm = StyleSheet.create({
-  ov:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' },
-  box:      { backgroundColor: '#160800', borderRadius: 24, padding: 20, margin: 12, borderWidth: 1, borderColor: 'rgba(240,165,0,0.15)' },
-  title:    { fontSize: 16, fontWeight: '700', color: '#FDF6ED', marginBottom: 4 },
-  sub:      { fontSize: 12, color: 'rgba(253,246,237,0.4)', marginBottom: 12 },
-  chip:     { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(200,130,40,0.2)', marginBottom: 7 },
-  chipOn:   { backgroundColor: 'rgba(232,98,10,0.15)', borderColor: '#E8620A' },
-  cTxt:     { fontSize: 13, color: 'rgba(253,246,237,0.45)' },
-  cTxtOn:   { color: '#F4A261' },
-  inp:      { backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 12, padding: 12, color: '#FDF6ED', fontSize: 13, minHeight: 55, borderWidth: 1, borderColor: 'rgba(200,130,40,0.15)', marginVertical: 10 },
-  row:      { flexDirection: 'row', gap: 10 },
-  cancel:   { flex: 1, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center' },
-  cancelT:  { color: 'rgba(253,246,237,0.5)', fontSize: 14, fontWeight: '600' },
-  submit:   { flex: 1, paddingVertical: 12, borderRadius: 12, backgroundColor: '#E8620A', alignItems: 'center' },
-  submitT:  { color: '#fff', fontSize: 14, fontWeight: '700' },
+  ov: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' },
+  box: { backgroundColor: '#160800', borderRadius: 24, padding: 20, margin: 12, borderWidth: 1, borderColor: 'rgba(240,165,0,0.15)' },
+  title: { fontSize: 16, fontWeight: '700', color: '#FDF6ED', marginBottom: 4 },
+  sub: { fontSize: 12, color: 'rgba(253,246,237,0.4)', marginBottom: 12 },
+  chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(200,130,40,0.2)', marginBottom: 7 },
+  chipOn: { backgroundColor: 'rgba(232,98,10,0.15)', borderColor: '#E8620A' },
+  cTxt: { fontSize: 13, color: 'rgba(253,246,237,0.45)' },
+  cTxtOn: { color: '#F4A261' },
+  inp: { backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 12, padding: 12, color: '#FDF6ED', fontSize: 13, minHeight: 55, borderWidth: 1, borderColor: 'rgba(200,130,40,0.15)', marginVertical: 10 },
+  row: { flexDirection: 'row', gap: 10 },
+  cancel: { flex: 1, paddingVertical: 12, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center' },
+  cancelT: { color: 'rgba(253,246,237,0.5)', fontSize: 14, fontWeight: '600' },
+  submit: { flex: 1, paddingVertical: 12, borderRadius: 12, backgroundColor: '#E8620A', alignItems: 'center' },
+  submitT: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });
 
 // ════════════════════════════════════════════════════════════════
@@ -285,25 +285,25 @@ const fm = StyleSheet.create({
 export default function DharmaChatScreen() {
   const insets = useSafeAreaInsets();
 
-  const [userLang,   setUserLang]  = useState('hindi');
-  const [userName,   setUserName]  = useState('Dharma Rakshak');
-  const [userDeity,  setUserDeity] = useState('');
-  const [userRashi,  setUserRashi] = useState('');
-  const [userNak,    setUserNak]   = useState('');
-  const [userPhone,  setUserPhone] = useState('');
-  const [userProfile,setUserProf]  = useState(null);
-  const [chatMode,   setChatMode]  = useState('dharma');
-  const [pts,        setPts]       = useState(0);
-  const [ready,      setReady]     = useState(false);
-  const [msgs,       setMsgs]      = useState([]);
-  const [input,      setInput]     = useState('');
-  const [loading,    setLoading]   = useState(false);
-  const [hist,       setHist]      = useState([]);
-  const [transId,    setTransId]   = useState(null);
-  const [fbMsgId,    setFbMsgId]   = useState(null);
+  const [userLang, setUserLang] = useState('hindi');
+  const [userName, setUserName] = useState('Dharma Rakshak');
+  const [userDeity, setUserDeity] = useState('');
+  const [userRashi, setUserRashi] = useState('');
+  const [userNak, setUserNak] = useState('');
+  const [userPhone, setUserPhone] = useState('');
+  const [userProfile, setUserProf] = useState(null);
+  const [chatMode, setChatMode] = useState('dharma');
+  const [pts, setPts] = useState(0);
+  const [ready, setReady] = useState(false);
+  const [msgs, setMsgs] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [hist, setHist] = useState([]);
+  const [transId, setTransId] = useState(null);
+  const [fbMsgId, setFbMsgId] = useState(null);
 
   const scrollRef = useRef(null);
-  const sendSc    = useRef(new Animated.Value(1)).current;
+  const sendSc = useRef(new Animated.Value(1)).current;
   const tNow = () => new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
 
   // ── INIT ─────────────────────────────────────────────────────
@@ -311,18 +311,18 @@ export default function DharmaChatScreen() {
     (async () => {
       try {
         const raw = await AsyncStorage.getItem('dharmasetu_user');
-        const p   = parseInt(await AsyncStorage.getItem('dharmasetu_pts') || '0', 10);
+        const p = parseInt(await AsyncStorage.getItem('dharmasetu_pts') || '0', 10);
         setPts(p);
 
         let lang = 'hindi', name = 'Dharma Rakshak', deity = '', rashi = '', nak = '', phone = '';
         if (raw) {
           const u = JSON.parse(raw);
-          lang  = u.language  || 'hindi';
-          name  = u.name      || 'Dharma Rakshak';
-          deity = u.deity     || '';
-          rashi = u.rashi     || '';
-          nak   = u.nakshatra || '';
-          phone = u.phone     || '';
+          lang = u.language || 'hindi';
+          name = u.name || 'Dharma Rakshak';
+          deity = u.deity || '';
+          rashi = u.rashi || '';
+          nak = u.nakshatra || '';
+          phone = u.phone || '';
           setUserProf(u);
         }
         setUserLang(lang); setUserName(name); setUserDeity(deity);
@@ -330,7 +330,7 @@ export default function DharmaChatScreen() {
 
         // Check if coming from home with preset question
         const presetQ = await AsyncStorage.getItem('dharmasetu_preset_question');
-        const mode    = await AsyncStorage.getItem('dharmasetu_mode');
+        const mode = await AsyncStorage.getItem('dharmasetu_mode');
         if (mode === 'factcheck') {
           setChatMode('factcheck');
           await AsyncStorage.removeItem('dharmasetu_mode');
@@ -361,7 +361,7 @@ export default function DharmaChatScreen() {
 
         // Daily check-in points
         const today = new Date().toDateString();
-        const last  = await AsyncStorage.getItem('dharmasetu_checkin');
+        const last = await AsyncStorage.getItem('dharmasetu_checkin');
         if (last !== today) {
           await AsyncStorage.setItem('dharmasetu_checkin', today);
           const n = await addPts('daily');
@@ -418,28 +418,28 @@ export default function DharmaChatScreen() {
 
     const uid = Date.now().toString();
     const aid = (Date.now() + 1).toString();
-    const t   = tNow();
+    const t = tNow();
 
     setMsgs(prev => [...prev,
-      { id: uid, type: 'user', text: clean, time: t },
-      { id: aid, type: 'ai', title: '', body: '', src: '', ver: false, translations: {}, activeLang: null, feedback: null, saved: false, streaming: true, thinking: true, question: clean, time: t },
+    { id: uid, type: 'user', text: clean, time: t },
+    { id: aid, type: 'ai', title: '', body: '', src: '', ver: false, translations: {}, activeLang: null, feedback: null, saved: false, streaming: true, thinking: true, question: clean, time: t },
     ]);
     setLoading(true);
     scrollDown();
 
     try {
       const messages = [{ role: 'user', content: clean }];
-      const profile  = { name, deity, rashi, nakshatra: nak, language: lang };
-      const rawA     = await callBackendAI(messages, profile, isFC ? 'factcheck' : 'dharma', phone);
-      const parsed   = parseResp(rawA);
+      const profile = { name, deity, rashi, nakshatra: nak, language: lang };
+      const rawA = await callBackendAI(messages, profile, isFC ? 'factcheck' : 'dharma', phone);
+      const parsed = parseResp(rawA);
 
       setMsgs(p => p.map(m => m.id === aid
         ? { ...m, title: parsed.title, src: parsed.src, ver: parsed.ver, origBody: parsed.body, thinking: false }
         : m
       ));
       setHist(p => [...p,
-        { role: 'user', content: clean },
-        { role: 'assistant', content: rawA },
+      { role: 'user', content: clean },
+      { role: 'assistant', content: rawA },
       ].slice(-16));
       streamText(parsed.body, aid);
     } catch (err) {
@@ -478,11 +478,11 @@ export default function DharmaChatScreen() {
 
     const uid = Date.now().toString();
     const aid = (Date.now() + 1).toString();
-    const t   = tNow();
+    const t = tNow();
 
     setMsgs(prev => [...prev,
-      { id: uid, type: 'user', text: clean, time: t },
-      { id: aid, type: 'ai', title: '', body: '', src: '', ver: false, translations: {}, activeLang: null, feedback: null, saved: false, streaming: true, thinking: true, question: clean, time: t },
+    { id: uid, type: 'user', text: clean, time: t },
+    { id: aid, type: 'ai', title: '', body: '', src: '', ver: false, translations: {}, activeLang: null, feedback: null, saved: false, streaming: true, thinking: true, question: clean, time: t },
     ]);
     setLoading(true);
     scrollDown();
@@ -493,7 +493,7 @@ export default function DharmaChatScreen() {
         ...hist.slice(-8),
         { role: 'user', content: clean },
       ];
-      const rawA   = await callBackendAI(messages, userProfile, chatMode === 'factcheck' ? 'factcheck' : 'dharma', userPhone);
+      const rawA = await callBackendAI(messages, userProfile, chatMode === 'factcheck' ? 'factcheck' : 'dharma', userPhone);
       const parsed = parseResp(rawA);
 
       setMsgs(p => p.map(m => m.id === aid
@@ -501,8 +501,8 @@ export default function DharmaChatScreen() {
         : m
       ));
       setHist(p => [...p,
-        { role: 'user', content: clean },
-        { role: 'assistant', content: rawA },
+      { role: 'user', content: clean },
+      { role: 'assistant', content: rawA },
       ].slice(-16));
       streamText(parsed.body, aid);
     } catch (err) {
@@ -525,14 +525,40 @@ export default function DharmaChatScreen() {
   };
 
   // ── ACTIONS ──────────────────────────────────────────────────
-  const handleUp   = msg => { if (msg.feedback) return; Vibration.vibrate(20); setMsgs(p => p.map(m => m.id === msg.id ? { ...m, feedback: 'up' } : m)); storeFb(msg.question || '', msg.body, 'up', '', userPhone); addPts('thumbsup').then(setPts); };
-  const handleDown = msg => { if (!msg.feedback) setFbMsgId(msg.id); };
-  const submitFb   = reason => {
+  const handleUp = async msg => { if (msg.feedback) return; Vibration.vibrate(20); setMsgs(p => p.map(m => m.id === msg.id ? { ...m, feedback: 'up' } : m)); try { const resp = await submitFeedback(msg.question || '', msg.body, 'up', '', userPhone); console.log('[Feedback] Up response:', resp); } catch (e) { console.error('[Feedback] Up error:', e); } addPts('thumbsup').then(setPts); };
+  const handleDown = async msg => { if (!msg.feedback) { setFbMsgId(msg.id); } };
+
+  const submitFb = async (reason) => {
     const msg = msgs.find(m => m.id === fbMsgId);
-    setMsgs(p => p.map(m => m.id === fbMsgId ? { ...m, feedback: 'down' } : m));
-    if (msg) storeFb(msg.question || '', msg.body, 'down', reason, userPhone);
+
+    setMsgs(p => p.map(m =>
+      m.id === fbMsgId ? { ...m, feedback: 'down' } : m
+    ));
+
+    try {
+      if (msg) {
+        const resp = await submitFeedback(
+          msg.question || '',
+          msg.body,
+          'down',
+          reason,
+          userPhone
+        );
+        console.log('[Feedback] Down response:', resp);
+      }
+    } catch (e) {
+      console.error('[Feedback] Down error:', e);
+    }
+
     setFbMsgId(null);
-    Alert.alert('🙏', userLang === 'hindi' ? 'Feedback मिल गया! धन्यवाद।' : 'Feedback received! Thank you.');
+
+    Alert.alert(
+      '🙏',
+      userLang === 'hindi'
+        ? 'Feedback मिल गया! धन्यवाद।'
+        : 'Feedback received! Thank you.'
+    );
+
     addPts('feedback_given').then(setPts);
   };
   const handleSave = async msg => {
@@ -545,10 +571,10 @@ export default function DharmaChatScreen() {
     } catch (e) { Alert.alert('', e.message); }
   };
 
-  const isH    = userLang === 'hindi';
-  const suggs  = SUGG[userLang] || SUGG.english;
+  const isH = userLang === 'hindi';
+  const suggs = SUGG[userLang] || SUGG.english;
   const phText = {
-    hindi:   'धर्म, ज्योतिष या जीवन के बारे में पूछें...',
+    hindi: 'धर्म, ज्योतिष या जीवन के बारे में पूछें...',
     english: 'Ask about Dharma, Jyotish, or life guidance...',
   };
 
@@ -785,46 +811,46 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0D0500' },
   flex: { flex: 1 },
 
-  hdr:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#0D0500', borderBottomWidth: 1, borderBottomColor: 'rgba(240,165,0,0.1)' },
-  hL:      { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  hR:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  hAv:     { width: 40, height: 40, borderRadius: 20, backgroundColor: '#6B21A8', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(240,165,0,0.4)' },
-  hTitle:  { fontSize: 15, fontWeight: '700', color: '#FDF6ED' },
-  hSub:    { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 1 },
-  gDot:    { width: 6, height: 6, borderRadius: 3, backgroundColor: '#2ECC71' },
+  hdr: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#0D0500', borderBottomWidth: 1, borderBottomColor: 'rgba(240,165,0,0.1)' },
+  hL: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  hR: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  hAv: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#6B21A8', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(240,165,0,0.4)' },
+  hTitle: { fontSize: 15, fontWeight: '700', color: '#FDF6ED' },
+  hSub: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 1 },
+  gDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#2ECC71' },
   hSubTxt: { fontSize: 11, color: '#C9830A' },
-  mBtn:    { width: 34, height: 34, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(200,130,40,0.2)' },
-  mBtnFC:  { backgroundColor: 'rgba(232,98,10,0.15)', borderColor: '#E8620A' },
-  pBadge:  { backgroundColor: 'rgba(232,98,10,0.15)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: 'rgba(232,98,10,0.3)' },
-  pTxt:    { fontSize: 12, color: '#F4A261', fontWeight: '700' },
+  mBtn: { width: 34, height: 34, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.05)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(200,130,40,0.2)' },
+  mBtnFC: { backgroundColor: 'rgba(232,98,10,0.15)', borderColor: '#E8620A' },
+  pBadge: { backgroundColor: 'rgba(232,98,10,0.15)', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: 'rgba(232,98,10,0.3)' },
+  pTxt: { fontSize: 12, color: '#F4A261', fontWeight: '700' },
 
-  fcBnr:    { backgroundColor: 'rgba(232,98,10,0.1)', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(232,98,10,0.2)' },
+  fcBnr: { backgroundColor: 'rgba(232,98,10,0.1)', paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(232,98,10,0.2)' },
   fcBnrTxt: { fontSize: 12, color: '#F4A261', textAlign: 'center' },
 
-  lBar:   { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: '#0D0500', borderBottomWidth: 1, borderBottomColor: 'rgba(240,165,0,0.07)' },
-  lLbl:   { fontSize: 9, color: 'rgba(253,246,237,0.28)', fontWeight: '700', letterSpacing: 0.8 },
-  lChip:  { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, borderColor: 'rgba(200,130,40,0.18)' },
-  lChipOn:{ borderColor: '#E8620A', backgroundColor: 'rgba(232,98,10,0.13)' },
-  lTxt:   { fontSize: 13, color: 'rgba(253,246,237,0.38)', fontWeight: '600' },
+  lBar: { flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 14, paddingVertical: 9, backgroundColor: '#0D0500', borderBottomWidth: 1, borderBottomColor: 'rgba(240,165,0,0.07)' },
+  lLbl: { fontSize: 9, color: 'rgba(253,246,237,0.28)', fontWeight: '700', letterSpacing: 0.8 },
+  lChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, borderColor: 'rgba(200,130,40,0.18)' },
+  lChipOn: { borderColor: '#E8620A', backgroundColor: 'rgba(232,98,10,0.13)' },
+  lTxt: { fontSize: 13, color: 'rgba(253,246,237,0.38)', fontWeight: '600' },
   lTxtOn: { color: '#F4A261' },
 
-  dSep:   { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 10 },
-  dLine:  { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.05)' },
-  dTxt:   { fontSize: 10, color: 'rgba(253,246,237,0.2)', letterSpacing: 1.5 },
+  dSep: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingVertical: 10 },
+  dLine: { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.05)' },
+  dTxt: { fontSize: 10, color: 'rgba(253,246,237,0.2)', letterSpacing: 1.5 },
 
-  mList:  { padding: 12, paddingBottom: 8, gap: 10 },
+  mList: { padding: 12, paddingBottom: 8, gap: 10 },
 
-  uRow:   { flexDirection: 'row-reverse', alignItems: 'flex-end' },
-  uBub:   { backgroundColor: '#C45508', borderRadius: 18, borderTopRightRadius: 4, padding: 14, maxWidth: SW * 0.78 },
-  uTxt:   { fontSize: 14, color: '#fff', lineHeight: 22 },
-  uTime:  { fontSize: 10, color: 'rgba(253,246,237,0.2)', textAlign: 'right', marginTop: 3 },
+  uRow: { flexDirection: 'row-reverse', alignItems: 'flex-end' },
+  uBub: { backgroundColor: '#C45508', borderRadius: 18, borderTopRightRadius: 4, padding: 14, maxWidth: SW * 0.78 },
+  uTxt: { fontSize: 14, color: '#fff', lineHeight: 22 },
+  uTime: { fontSize: 10, color: 'rgba(253,246,237,0.2)', textAlign: 'right', marginTop: 3 },
 
-  aRow:   { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
-  aBdg:   { width: 26, height: 26, borderRadius: 13, backgroundColor: '#160800', borderWidth: 1, borderColor: 'rgba(107,33,168,0.45)', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginBottom: 2 },
-  aBub:   { backgroundColor: '#160800', borderRadius: 18, borderTopLeftRadius: 4, padding: 14, maxWidth: SW * 0.83, borderWidth: 1, borderColor: 'rgba(200,130,40,0.16)', gap: 8 },
+  aRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
+  aBdg: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#160800', borderWidth: 1, borderColor: 'rgba(107,33,168,0.45)', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginBottom: 2 },
+  aBub: { backgroundColor: '#160800', borderRadius: 18, borderTopLeftRadius: 4, padding: 14, maxWidth: SW * 0.83, borderWidth: 1, borderColor: 'rgba(200,130,40,0.16)', gap: 8 },
   aTitle: { fontSize: 14, fontWeight: '700', color: '#F4A261', marginBottom: 2 },
-  aTxt:   { fontSize: 14, color: '#FDF6ED', lineHeight: 25 },
-  cur:    { color: '#E8620A', fontWeight: 'bold' },
+  aTxt: { fontSize: 14, color: '#FDF6ED', lineHeight: 25 },
+  cur: { color: '#E8620A', fontWeight: 'bold' },
 
   srcBox: { backgroundColor: 'rgba(201,131,10,0.07)', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: 'rgba(201,131,10,0.18)' },
   srcHdr: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 5 },
@@ -836,20 +862,20 @@ const s = StyleSheet.create({
 
   actRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6, flexWrap: 'wrap' },
   actBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(240,165,0,0.15)' },
-  actUp:  { backgroundColor: 'rgba(39,174,96,0.1)',  borderColor: '#27AE60' },
-  actDn:  { backgroundColor: 'rgba(231,76,60,0.1)',  borderColor: '#E74C3C' },
+  actUp: { backgroundColor: 'rgba(39,174,96,0.1)', borderColor: '#27AE60' },
+  actDn: { backgroundColor: 'rgba(231,76,60,0.1)', borderColor: '#E74C3C' },
   actSav: { backgroundColor: 'rgba(201,131,10,0.1)', borderColor: '#C9830A' },
   actLbl: { fontSize: 10, color: 'rgba(253,246,237,0.35)', fontWeight: '600' },
 
-  aTime:  { fontSize: 10, color: 'rgba(253,246,237,0.18)', marginTop: 2 },
+  aTime: { fontSize: 10, color: 'rgba(253,246,237,0.18)', marginTop: 2 },
 
-  pills:  { maxHeight: 48, marginBottom: 4 },
+  pills: { maxHeight: 48, marginBottom: 4 },
   pillsC: { paddingHorizontal: 14, gap: 8, alignItems: 'center' },
-  pill:   { backgroundColor: '#160800', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, borderWidth: 1, borderColor: 'rgba(232,98,10,0.28)' },
-  pillTxt:{ fontSize: 12, color: '#F4A261', fontWeight: '500' },
+  pill: { backgroundColor: '#160800', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, borderWidth: 1, borderColor: 'rgba(232,98,10,0.28)' },
+  pillTxt: { fontSize: 12, color: '#F4A261', fontWeight: '500' },
 
-  iBar:    { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#0D0500', borderTopWidth: 1, borderTopColor: 'rgba(240,165,0,0.07)', alignItems: 'flex-end' },
-  inp:     { flex: 1, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 11, color: '#FDF6ED', fontSize: 14, maxHeight: 120, minHeight: 46, borderWidth: 1, borderColor: 'rgba(200,130,40,0.16)', lineHeight: 20 },
+  iBar: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#0D0500', borderTopWidth: 1, borderTopColor: 'rgba(240,165,0,0.07)', alignItems: 'flex-end' },
+  inp: { flex: 1, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 11, color: '#FDF6ED', fontSize: 14, maxHeight: 120, minHeight: 46, borderWidth: 1, borderColor: 'rgba(200,130,40,0.16)', lineHeight: 20 },
   sendBtn: { width: 46, height: 46, borderRadius: 14, backgroundColor: '#E8620A', alignItems: 'center', justifyContent: 'center', elevation: 5 },
   sendOff: { backgroundColor: 'rgba(232,98,10,0.2)', elevation: 0 },
   sendIco: { color: '#fff', fontSize: 28, fontWeight: '700', marginBottom: 2 },
