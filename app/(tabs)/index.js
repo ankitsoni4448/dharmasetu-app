@@ -6,16 +6,18 @@
 // ════════════════════════════════════════════════════════════════
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Location from 'expo-location';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { getNextEkadashi } from '../utils/panchang';
+
 import {
   Alert, Animated, ScrollView, Share, StyleSheet,
   Text, TouchableOpacity, Vibration, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { getPanchang, getNextEkadashi } from '../utils/panchang';
 import {
   FESTIVALS_2025_2026,
   EKADASHI_2025_2026,
@@ -113,10 +115,38 @@ function PanchangCard({ lang }) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const panchang = getPanchang(new Date(), 22.7196, 75.8577, lang);
-    setP(panchang);
-    Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }).start();
-  }, [lang]);
+  const loadPanchang = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+
+      const loc = await Location.getCurrentPositionAsync({});
+      const lat = loc.coords.latitude;
+      const lng = loc.coords.longitude;
+
+      const res = await fetch(
+        `https://dharmasetu-backend-2c65.onrender.com/api/panchang/today?lat=${lat}&lng=${lng}`
+      );
+
+      const data = await res.json();
+
+      if (data.success) {
+        setP(data.data);
+      }
+
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true
+      }).start();
+
+    } catch (e) {
+      console.log("Panchang error:", e);
+    }
+  };
+
+  loadPanchang();
+}, [lang]);
 
   if (!p) return (
     <View style={[s.card, { alignItems: 'center', padding: 24 }]}>
