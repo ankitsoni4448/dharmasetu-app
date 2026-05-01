@@ -113,3 +113,25 @@ export async function submitFeedback(question, wrongAnswer, rating, reason, phon
     throw err;
   }
 }
+export async function getUserFromBackend(phone) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/user/get?phone=${phone}`);
+
+    if (!res.ok) {
+      console.log("Backend response not OK:", res.status);
+      return null;
+    }
+
+    const data = await res.json();
+
+    if (!data || !data.user) {
+      console.log("No user found in backend");
+      return null;
+    }
+
+    return data.user;
+  } catch (err) {
+    console.log("Fetch user error:", err);
+    return null;
+  }
+}

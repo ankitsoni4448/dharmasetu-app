@@ -2,8 +2,11 @@
 // Flow: Name → DOB+Time → City → Language → Phone → OTP
 // Time: slots OR exact time input (user chooses)
 // Logout fix: saves permanently by phone number
+import { getAuth, signInWithPhoneNumber } from "firebase/auth";
+import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
+import { app } from "./utils/firebase";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { registerUserToBackend } from './register_backend';
+import { registerUserToBackend, getUserFromBackend } from './register_backend';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
@@ -16,6 +19,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 // ── KUNDLI DATA ──────────────────────────────────────────────────────
 const RASHIS = ['Mesh','Vrishabh','Mithun','Kark','Simha','Kanya','Tula','Vrishchik','Dhanu','Makar','Kumbh','Meen'];
@@ -113,6 +123,9 @@ const L = {
 
 // ════════════════════════════════════════════════════════
 export default function LoginScreen() {
+  const auth = getAuth(app);
+  const recaptchaVerifier = useRef(null);
+  const [confirmation, setConfirmation] = useState(null);
   const insets = useSafeAreaInsets();
   const [ui, setUi] = useState('hi'); // UI language
   const [step, setStep] = useState(-1);
@@ -130,7 +143,6 @@ export default function LoginScreen() {
   const [lang, setLang] = useState('hindi');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
-  const [genOtp, setGenOtp] = useState('');
 
   const fade = useRef(new Animated.Value(0)).current;
   const slide = useRef(new Animated.Value(20)).current;
@@ -169,28 +181,41 @@ export default function LoginScreen() {
     return true;
   };
 
-  const sendOTP = async () => {
-    if(!phone||phone.length<10) { Alert.alert('',ui==='hi'?'सही नंबर दर्ज करें।':'Enter a valid 10-digit number.'); return; }
-    setLoading(true);
-    // Check returning user
-    const existing = await AsyncStorage.getItem(`ds_acc_${phone}`).catch(()=>null);
-    if(existing) {
-      const otp6=Math.floor(100000+Math.random()*900000).toString();
-      setGenOtp(otp6); console.log('[DharmaSetu OTP]',otp6);
-      await new Promise(r=>setTimeout(r,600));
-      setLoading(false); setStep(5);
-      Alert.alert(t.otpTitle,`OTP: ${otp6}\n(${t.otpBody})`);
-      return;
-    }
-    const otp6=Math.floor(100000+Math.random()*900000).toString();
-    setGenOtp(otp6); console.log('[DharmaSetu OTP]',otp6);
-    await new Promise(r=>setTimeout(r,600));
-    setLoading(false); setStep(5);
-    Alert.alert(t.otpTitle,`OTP: ${otp6}\n(${t.otpBody})`);
-  };
+
+
+// ✅ 👉 PASTE HERE (EXACTLY HERE)
+
+async function sendOTP(fullPhone) {
+  try {
+    const result = await signInWithPhoneNumber(
+      auth,
+      fullPhone,
+      recaptchaVerifier.current
+    );
+    setConfirmation(result);
+    Alert.alert("OTP Sent", "Check your phone");
+    setStep(5);
+  } catch (err) {
+    console.log(err);
+    Alert.alert("Error", "Failed to send OTP");
+  }
+}
+
+async function verifyOTP() {
+  try {
+    if (!confirmation) {
+  Alert.alert("Error", "Please request OTP again");
+  return;
+}
+    await confirmation.confirm(otp);
+    verifyAndSave();
+  } catch (err) {
+    Alert.alert("Error", "Invalid OTP");
+  }
+}
+
 
   const verifyAndSave = async () => {
-    if(otp.trim()!==genOtp) { Alert.alert('',t.wrongOTP); return; }
     setLoading(true);
     // Get push token
     let pushToken = '';
@@ -211,14 +236,25 @@ export default function LoginScreen() {
     }
 
     // Returning user restore
-    const existing = await AsyncStorage.getItem(`ds_acc_${phone}`).catch(()=>null);
-    if(existing) {
-      const u = JSON.parse(existing);
-      u.pushToken = pushToken;
-      await AsyncStorage.setItem('dharmasetu_user',JSON.stringify(u));
-      registerUserToBackend(u);
-      setLoading(false); router.replace('/(tabs)'); return;
-    }
+    // 🔥 First check backend
+const backendUser = await getUserFromBackend(phone);
+
+if (backendUser) {
+  backendUser.pushToken = pushToken;
+
+  // 🔥 Update backend with latest token + UID
+  await registerUserToBackend({
+    ...backendUser,
+    pushToken,
+    firebaseUid: auth.currentUser?.uid || "",
+  });
+
+  await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(backendUser));
+
+  setLoading(false);
+  router.replace('/(tabs)');
+  return;
+}
     // New user — build kundli
     const rashi = calculateRashi(dobDay,dobMonth,dobYear);
     const naks = NAKSHATRA_BY_RASHI[rashi]||['Ashwini'];
@@ -242,7 +278,10 @@ export default function LoginScreen() {
     await AsyncStorage.setItem(`ds_acc_${phone}`,JSON.stringify(userData));
     await AsyncStorage.setItem('dharmasetu_pts','0');
     await AsyncStorage.setItem('dharmasetu_streak_count','0');
-    registerUserToBackend(userData); // send to backend in background
+    await registerUserToBackend({
+  ...userData,
+  firebaseUid: auth.currentUser?.uid || "",
+}); // send to backend in background
     setLoading(false); router.replace('/(tabs)');
   };
 
@@ -257,6 +296,10 @@ export default function LoginScreen() {
 
   return(
     <View style={[s.root,{paddingTop:insets.top}]}>
+         <FirebaseRecaptchaVerifierModal
+      ref={recaptchaVerifier}
+      firebaseConfig={app.options}
+    />
       <StatusBar style="light" backgroundColor="#0D0500"/>
       {/* UI lang toggle */}
       <View style={s.topBar}>
@@ -404,7 +447,7 @@ export default function LoginScreen() {
                 </View>
                 <View style={s.navRow}>
                   <TouchableOpacity style={s.backBtn} onPress={()=>setStep(3)}><Text style={s.backBtnTxt}>←</Text></TouchableOpacity>
-                  <TouchableOpacity style={[s.btn,{flex:1}]} onPress={sendOTP} disabled={loading} activeOpacity={0.85}>
+                  <TouchableOpacity style={[s.btn,{flex:1}]} onPress={() => sendOTP("+91" + phone)} disabled={loading} activeOpacity={0.85}>
                     {loading?<ActivityIndicator color="#fff"/>:<Text style={s.btnTxt}>{t.getOTP}</Text>}
                   </TouchableOpacity>
                 </View>
@@ -427,7 +470,7 @@ export default function LoginScreen() {
                   maxLength={6}
                   autoFocus
                 />
-                <TouchableOpacity style={s.btn} onPress={verifyAndSave} disabled={loading||otp.length<6} activeOpacity={0.85}>
+                <TouchableOpacity style={s.btn} onPress={verifyOTP} disabled={loading||otp.length<6} activeOpacity={0.85}>
                   {loading?<ActivityIndicator color="#fff"/>:<Text style={s.btnTxt}>{otp.length>=6?t.enter:t.verify}</Text>}
                 </TouchableOpacity>
                 <TouchableOpacity onPress={()=>{setStep(4);setOtp('');}} style={{marginTop:12,alignItems:'center'}}>

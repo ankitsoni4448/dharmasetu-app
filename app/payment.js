@@ -31,6 +31,9 @@ const DEFAULT_DONS = [
   { id:'dharma', name:'Dharma Education',nameHi:'धर्म शिक्षा',       desc:'Educate youth about Dharma',  goal:250000, raised:0 },
 ];
 
+function handleDonate(campaign, amount) {
+  Alert.alert("🙏 Thank you!", `Donation of ₹${amount} noted`);
+}
 // ─── Backend helpers ──────────────────────────────────────────────
 async function logToBackend(path, body) {
   try {
@@ -96,7 +99,7 @@ export default function PaymentScreen() {
     }
     const orderId = `upi_${Date.now()}`;
     // Log to backend
-    await logToBackend('/payment/confirm', { orderId, phone: user?.phone || '', planId: plan.id });
+   
     // Open UPI
     const upiLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=DharmaSetu&am=${plan.price}&cu=INR&tn=${encodeURIComponent('DharmaSetu '+plan.name)}`;
     try {
@@ -167,29 +170,39 @@ export default function PaymentScreen() {
     setLoading(false);
   };
 
-  const verifyPayment = async () => {
-    if (!pendingOrderId || !selPlan) {
-      Alert.alert('Error', 'No pending payment to verify');
-      return;
-    }
-    try {
-      const resp = await fetch(`${BACKEND_URL}/payment/verify`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orderId: pendingOrderId, phone: user?.phone || '', planId: selPlan.id }),
-      });
-      const data = await resp.json();
-      if (data.success) {
-        await activatePlan(selPlan, pendingOrderId);
-        Alert.alert('🎉', 'Payment submitted. Awaiting approval');
-      } else {
-        Alert.alert('Error', data.error || 'Verification failed');
-      }
-    } catch (e) {
-      Alert.alert('Error', e.message);
-    }
-    setPendingOrderId(null);
-    setSelPlan(null);
-  };
+const verifyPayment = async () => {
+  if (!pendingOrderId || !selPlan) {
+    Alert.alert('Error', 'No pending payment');
+    return;
+  }
+
+  try {
+    // 🔥 Only confirm payment (manual approval system)
+    await fetch(`${BACKEND_URL}/payment/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderId: pendingOrderId,
+        phone: user?.phone || '',
+        planId: selPlan.id
+      }),
+    });
+
+    // 🔥 Activate locally
+    await activatePlan(selPlan, pendingOrderId);
+
+    Alert.alert(
+      '✅ Payment Submitted',
+      'Your payment is recorded. Premium activated.'
+    );
+
+  } catch (e) {
+    Alert.alert('Error', e.message);
+  }
+
+  setPendingOrderId(null);
+  setSelPlan(null);
+};
 
   return (
     <View style={[s.root, { paddingTop: insets.top }]}>
