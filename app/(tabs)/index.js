@@ -1150,7 +1150,15 @@ if (storedLang) {
         <MoodMantra 
   lang={lang} 
   onAsk={navigateToDharmaChat}
-  onMoodChange={fetchAIInsight}
+  onMoodChange={() => {
+  // Debounce: only fetch if last fetch was > 30 mins ago
+  AsyncStorage.getItem('dharmasetu_last_insight').then(last => {
+    if (!last || Date.now() - parseInt(last) > 1800000) {
+      AsyncStorage.setItem('dharmasetu_last_insight', String(Date.now()));
+      fetchAIInsight();
+    }
+  });
+}}
 />
 
         {/* Japa Counter */}
