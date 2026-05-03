@@ -4,24 +4,28 @@
 //           Festival Countdown, Streak, Quick Actions
 // COPY THIS ENTIRE FILE to: app/(tabs)/index.js
 // ════════════════════════════════════════════════════════════════
-
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React from 'react';
 import * as Location from 'expo-location';
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { FlashList } from '@shopify/flash-list';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { getNextEkadashi } from '../utils/panchang';
-
+import { TextInput } from 'react-native';
 import {
   Alert, Animated, ScrollView, Share, StyleSheet,
   Text, TouchableOpacity, Vibration, View,
 } from 'react-native';
+
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import {
   FESTIVALS_2025_2026,
   EKADASHI_2025_2026,
 } from '../hinduCalendar';
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const API_URL = "https://dharmasetu-backend-2c65.onrender.com/api/panchang/today";
+
 
 // ── DAILY SHLOKS (30 hardcoded — no AI token waste) ────────────
 const DAILY_SHLOKS = [
@@ -108,138 +112,361 @@ const JAPA_MANTRAS = [
 // ════════════════════════════════════════════════════════════════
 
 // ── PANCHANG CARD ──────────────────────────────────────────────
-function PanchangCard({ lang }) {
-  const [p, setP] = useState(null);
-  const [expanded, setExpanded] = useState(false);
-  const isH = lang === 'hindi';
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+// ═══════════════════════════════════════════════════════════════
+// REPLACE the entire PanchangCard function in app/(tabs)/index.js
+// ═══════════════════════════════════════════════════════════════
 
-  useEffect(() => {
-  const loadPanchang = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
-
-      const loc = await Location.getCurrentPositionAsync({});
-      const lat = loc.coords.latitude;
-      const lng = loc.coords.longitude;
-
-      const res = await fetch(
-        `https://dharmasetu-backend-2c65.onrender.com/api/panchang/today?lat=${lat}&lng=${lng}`
-      );
-
-      const data = await res.json();
-
-      if (data.success) {
-        setP(data.data);
-      }
-
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true
-      }).start();
-
-    } catch (e) {
-      console.log("Panchang error:", e);
-    }
+// ── LOCAL FALLBACK (used when API is offline — no crashes) ─────
+function getLocalFallback() {
+  const d = new Date();
+  const day = d.getDay();
+  const VAAR_HI   = ['रविवार','सोमवार','मंगलवार','बुधवार','गुरुवार','शुक्रवार','शनिवार'];
+  const VAAR_EN   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const DEITIES   = ['Surya Dev','Shiva Ji','Hanuman Ji','Ganesh Ji','Vishnu Ji','Lakshmi Mata','Shani Dev'];
+  const MANTRAS   = ['ॐ घृणि सूर्याय नमः','ॐ नमः शिवाय','ॐ नमो हनुमते रुद्रावताराय',
+    'ॐ गं गणपतये नमः','ॐ नमो भगवते वासुदेवाय','ॐ श्रीं महालक्ष्म्यै नमः','ॐ शं शनैश्चराय नमः'];
+  const TITHIS    = ['Pratipada','Dwitiya','Tritiya','Chaturthi','Panchami','Shashthi','Saptami',
+    'Ashtami','Navami','Dashami','Ekadashi','Dwadashi','Trayodashi','Chaturdashi','Purnima'];
+  const NAKS      = ['Ashwini','Bharani','Krittika','Rohini','Mrigashira','Ardra','Punarvasu',
+    'Pushya','Ashlesha','Magha','Purva Phalguni','Uttara Phalguni','Hasta','Chitra','Swati'];
+  const doy = Math.floor((d - new Date(d.getFullYear(),0,0)) / 86400000);
+  const yr  = d.getMonth() >= 3 ? d.getFullYear() + 57 : d.getFullYear() + 56;
+  return {
+    tithi:           TITHIS[doy % 15],
+    nakshatra:       NAKS[doy % 15],
+    yoga:            'Shubha',
+    karana:          'Bava',
+    weekday:         VAAR_EN[day],
+    sunrise:         '06:12',
+    sunset:          '18:44',
+    paksha:          doy % 30 < 15 ? 'Shukla Paksha' : 'Krishna Paksha',
+    vaar:            VAAR_HI[day] + ' / ' + VAAR_EN[day],
+    vaarDeity:       DEITIES[day],
+    vaarMantra:      MANTRAS[day],
+    auspiciousLabel: '⚖️ सामान्य दिन',
+    auspiciousColor: '#C9830A',
+    vikramSamvat:    yr,
+    rahuKaal:        'See almanac',
+    abhijit:         '11:48 – 12:12',
+    specialEvents:   [],
+    dateStr:         d.toLocaleDateString('en-IN', { weekday:'long', day:'numeric', month:'long', year:'numeric' }),
+    _isFallback:     true,
   };
-
-  loadPanchang();
-}, [lang]);
-
-  if (!p) return (
-    <View style={[s.card, { alignItems: 'center', padding: 24 }]}>
-      <Text style={{ color: '#E8620A', fontSize: 13 }}>🕉 पंचांग लोड हो रहा है...</Text>
-    </View>
-  );
-
-  const shareCard = async () => {
-    try {
-      await Share.share({
-        message: `🕉 आज का पंचांग — DharmaSetu\n━━━━━━━━━━━━━━━\n📅 ${p.dateStr}\n🌙 तिथि: ${p.tithi} (${p.paksha})\n⭐ नक्षत्र: ${p.nakshatra}\n🕉 योग: ${p.yoga}\n📆 वार: ${p.vaar}\n━━━━━━━━━━━━━━━\n🌅 सूर्योदय: ${p.sunrise} | 🌄 सूर्यास्त: ${p.sunset}\n⚠️ राहु काल: ${p.rahuKaal}\n✨ अभिजित: ${p.abhijit}\n━━━━━━━━━━━━━━━\n🙏 DharmaSetu — जय सनातन धर्म 🔱`,
-      });
-    } catch {}
-  };
-
-  return (
-    <Animated.View style={[s.card, { opacity: fadeAnim }]}>
-      {/* Header */}
-      <View style={s.panHdr}>
-        <View>
-          <Text style={s.panTitle}>📅 {isH ? 'आज का पंचांग' : "Today's Panchang"}</Text>
-          <Text style={s.panSamvat}>{isH ? `विक्रम संवत ${p.vikramSamvat}` : `Vikram Samvat ${p.vikramSamvat}`}</Text>
-        </View>
-        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-          <View style={[s.auPill, { backgroundColor: p.auspiciousColor + '20', borderColor: p.auspiciousColor + '50' }]}>
-            <Text style={[s.auTxt, { color: p.auspiciousColor }]}>{p.auspiciousLabel}</Text>
-          </View>
-          <TouchableOpacity onPress={shareCard} style={s.shareSmBtn}><Text style={{ fontSize: 14 }}>📤</Text></TouchableOpacity>
-        </View>
-      </View>
-
-      {/* 6-cell grid */}
-      <View style={s.panGrid}>
-        {[
-          { icon: '🌙', lbl: isH ? 'तिथि' : 'Tithi',       val: p.tithi },
-          { icon: '☯️', lbl: isH ? 'पक्ष' : 'Paksha',      val: p.paksha.split(' ')[0] },
-          { icon: '⭐', lbl: isH ? 'नक्षत्र' : 'Nakshatra', val: p.nakshatra },
-          { icon: '🕉', lbl: isH ? 'योग' : 'Yoga',          val: p.yoga },
-          { icon: '📆', lbl: isH ? 'वार' : 'Weekday',       val: p.vaar },
-          { icon: '🔯', lbl: isH ? 'करण' : 'Karana',        val: p.karana },
-        ].map((cell, i) => (
-          <View key={i} style={s.panCell}>
-            <Text style={s.panCellIcon}>{cell.icon}</Text>
-            <Text style={s.panCellLbl}>{cell.lbl}</Text>
-            <Text style={s.panCellVal} numberOfLines={2}>{cell.val}</Text>
-          </View>
-        ))}
-      </View>
-
-      {/* Sun/Rahu row */}
-      <View style={s.sunRow}>
-        {[
-          { icon: '🌅', lbl: isH ? 'उदय' : 'Sunrise',   val: p.sunrise, color: '#F39C12' },
-          { icon: '🌄', lbl: isH ? 'अस्त' : 'Sunset',   val: p.sunset,  color: '#E8620A' },
-          { icon: '⚠️', lbl: isH ? 'राहु' : 'Rahu',     val: p.rahuKaal, color: '#E74C3C' },
-          { icon: '✨', lbl: isH ? 'अभिजित' : 'Abhijit', val: p.abhijit, color: '#27AE60' },
-        ].map((item, i) => (
-          <View key={i} style={s.sunItem}>
-            <Text style={{ fontSize: 16, marginBottom: 2 }}>{item.icon}</Text>
-            <Text style={s.sunLbl}>{item.lbl}</Text>
-            <Text style={[s.sunVal, { color: item.color }]} numberOfLines={2}>{item.val}</Text>
-          </View>
-        ))}
-      </View>
-
-      {/* Deity mantra */}
-      <View style={s.deityBox}>
-        <Text style={s.deityTxt}>
-          🙏 {isH
-            ? `आज ${p.vaar} है — ${p.vaarDeity} की पूजा करें`
-            : `Today is ${p.vaar} — Worship ${p.vaarDeity}`}
-        </Text>
-        <Text style={s.deityMantra}>{p.vaarMantra}</Text>
-      </View>
-
-      {/* Special events */}
-      {p.specialEvents.length > 0 && (
-        <View style={{ gap: 5, marginTop: 6 }}>
-          {p.specialEvents.map((ev, i) => (
-            <View key={i} style={[s.evtBox, { borderColor: ev.color + '40' }]}>
-              <Text style={[s.evtTxt, { color: ev.color }]}>{ev.text}</Text>
-            </View>
-          ))}
-        </View>
-      )}
-    </Animated.View>
-  );
 }
 
+function getDharmicInsight(data) {
+  if (!data) return null;
+
+  let title = "🧠 Dharmic Insight";
+  let points = [];
+
+  const tithi = (data.tithi || "").toLowerCase();
+  const vaar = (data.vaar || "").toLowerCase();
+
+  // 🟣 EKADASHI
+  if (tithi.includes("ekadashi")) {
+    title = "🌿 Ekadashi Guidance";
+    points.push("Fasting is highly beneficial today");
+    points.push("Chant Vishnu mantra: ॐ नमो भगवते वासुदेवाय");
+    points.push("Avoid tamasic food (onion, garlic, non-veg)");
+  }
+
+  // 🟡 MONDAY
+  if (vaar.includes("monday") || vaar.includes("सोमवार")) {
+    points.push("Worship Lord Shiva today");
+    points.push("Chant: ॐ नमः शिवाय");
+  }
+
+  // 🔴 TUESDAY
+  if (vaar.includes("tuesday") || vaar.includes("मंगलवार")) {
+    points.push("Good day for Hanuman worship");
+    points.push("Chant Hanuman mantra");
+  }
+
+  // ⚫ SATURDAY
+  if (vaar.includes("saturday") || vaar.includes("शनिवार")) {
+    points.push("Offer oil to Shani Dev");
+    points.push("Avoid starting risky work");
+  }
+
+  // ⚠️ RAHU KAAL
+  if (data.rahuKaal && data.rahuKaal !== "See almanac") {
+    points.push(`Avoid important work during Rahu Kaal (${data.rahuKaal})`);
+  }
+
+  // 🟢 DEFAULT
+  if (points.length === 0) {
+    points.push("Focus on karma and discipline today");
+    points.push("Do your duties without attachment");
+  }
+
+  return { title, points };
+}
+// ── PANCHANGCARD (FULL REPLACEMENT) ────────────────────────────
+function PanchangCard() {
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [city, setCity] = React.useState('');
+  const [inputCity, setInputCity] = React.useState('');
+
+  const getTodayKey = () => {
+    const d = new Date();
+    return `panchang_${d.getDate()}_${d.getMonth()}_${d.getFullYear()}`;
+  };
+
+  // Load saved city
+  React.useEffect(() => {
+    AsyncStorage.getItem('user_city').then(c => {
+      if (c) {
+        setCity(c);
+        setInputCity(c);
+      }
+    });
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const cacheKey = getTodayKey();
+
+        // ✅ STEP 1 — CHECK CACHE
+        const cached = await AsyncStorage.getItem(cacheKey);
+
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          await AsyncStorage.setItem("today_panchang", JSON.stringify(parsed));
+          if (!cancelled) {
+            setData(parsed);
+            setLoading(false);
+          }
+          return; // 🚀 STOP API CALL
+        }
+
+        let lat = null;
+        let lng = null;
+
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted') {
+            const loc = await Location.getCurrentPositionAsync({});
+            lat = loc.coords.latitude;
+            lng = loc.coords.longitude;
+          }
+        } catch {}
+
+        let url = API_URL;
+
+        if (lat && lng) url += `?lat=${lat}&lng=${lng}`;
+        else if (city) url += `?city=${city}`;
+        else url += `?city=Delhi`;
+
+        // ✅ STEP 2 — API CALL
+        const res = await fetch(url);
+        const json = await res.json();
+
+        const finalData = json.data || getLocalFallback();
+        await AsyncStorage.setItem("today_panchang", JSON.stringify(finalData));
+
+        // ✅ STEP 3 — SAVE CACHE
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(finalData));
+
+        if (!cancelled) {
+          setData(finalData);
+        }
+
+      } catch (e) {
+        console.log("Panchang error:", e);
+
+        if (!cancelled) {
+          setData(getLocalFallback());
+        }
+
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+
+    return () => { cancelled = true; };
+  }, [city]);
+
+  const saveCity = async () => {
+    if (!inputCity) {
+      Alert.alert("Enter City");
+      return;
+    }
+
+    await AsyncStorage.setItem('user_city', inputCity);
+
+    // 🔥 CLEAR OLD CACHE (IMPORTANT)
+    const cacheKey = getTodayKey();
+    await AsyncStorage.removeItem(cacheKey);
+
+    setCity(inputCity);
+    setLoading(true);
+
+    Alert.alert("Saved", "City updated");
+  };
+
+  if (loading) {
+    return (
+      <View style={s.card}>
+        <Text style={s.cardTitle}>📅 Panchang</Text>
+        <Text style={{ color: '#fff', marginTop: 10 }}>Loading...</Text>
+      </View>
+    );
+  }
+
+const safeData = data || getLocalFallback();
+
+return (
+  <View style={s.card}>
+    
+    {/* HEADER */}
+    <View style={s.panHdr}>
+      <View>
+        <Text style={s.panTitle}>📅 Panchang</Text>
+        <Text style={s.panSamvat}>
+          Vikram Samvat: {safeData.vikramSamvat}
+        </Text>
+      </View>
+
+      <View style={[s.auPill, { borderColor: safeData.auspiciousColor }]}>
+        <Text style={[s.auTxt, { color: safeData.auspiciousColor }]}>
+          {safeData.auspiciousLabel}
+        </Text>
+      </View>
+    </View>
+
+    {/* GRID */}
+    <View style={s.panGrid}>
+      <View style={s.panCell}>
+        <Text style={s.panCellLbl}>Tithi</Text>
+        <Text style={s.panCellVal}>{safeData.tithi}</Text>
+      </View>
+
+      <View style={s.panCell}>
+        <Text style={s.panCellLbl}>Nakshatra</Text>
+        <Text style={s.panCellVal}>{safeData.nakshatra}</Text>
+      </View>
+
+      <View style={s.panCell}>
+        <Text style={s.panCellLbl}>Vaar</Text>
+        <Text style={s.panCellVal}>{safeData.vaar}</Text>
+      </View>
+
+      <View style={s.panCell}>
+        <Text style={s.panCellLbl}>Rahu Kaal</Text>
+        <Text style={s.panCellVal}>{safeData.rahuKaal}</Text>
+      </View>
+
+      <View style={s.panCell}>
+        <Text style={s.panCellLbl}>Abhijit</Text>
+        <Text style={s.panCellVal}>{safeData.abhijit}</Text>
+      </View>
+
+      <View style={s.panCell}>
+        <Text style={s.panCellLbl}>Paksha</Text>
+        <Text style={s.panCellVal}>{safeData.paksha}</Text>
+      </View>
+    </View>
+
+    {/* SUN */}
+    <View style={s.sunRow}>
+      <View style={s.sunItem}>
+        <Text style={s.sunLbl}>🌅 Sunrise</Text>
+        <Text style={s.sunVal}>{safeData.sunrise}</Text>
+      </View>
+      <View style={s.sunItem}>
+        <Text style={s.sunLbl}>🌇 Sunset</Text>
+        <Text style={s.sunVal}>{safeData.sunset}</Text>
+      </View>
+    </View>
+
+    {/* DEITY */}
+    <View style={s.deityBox}>
+      <Text style={s.deityTxt}>{safeData.vaarDeity}</Text>
+      <Text style={s.deityMantra}>{safeData.vaarMantra}</Text>
+    </View>
+
+    {/* AI INSIGHT */}
+    {(() => {
+      const insight = getDharmicInsight(safeData);
+      if (!insight) return null;
+
+      return (
+        <View style={{
+          backgroundColor: 'rgba(39,174,96,0.08)',
+          borderRadius: 12,
+          padding: 12,
+          borderWidth: 1,
+          borderColor: 'rgba(39,174,96,0.3)',
+          marginBottom: 10
+        }}>
+          <Text style={{
+            fontSize: 13,
+            fontWeight: '800',
+            color: '#27AE60',
+            marginBottom: 6
+          }}>
+            {insight.title}
+          </Text>
+
+          {insight.points.map((p, i) => (
+            <Text key={i} style={{
+              fontSize: 12,
+              color: 'rgba(253,246,237,0.8)',
+              marginBottom: 4
+            }}>
+              • {p}
+            </Text>
+          ))}
+        </View>
+      );
+    })()}
+
+    {/* LOCATION */}
+    <View style={{ marginTop: 10 }}>
+      <TextInput
+        placeholder="Change City"
+        placeholderTextColor="#999"
+        value={inputCity}
+        onChangeText={setInputCity}
+        style={{
+          borderWidth: 1,
+          borderColor: '#444',
+          padding: 10,
+          borderRadius: 8,
+          color: '#fff'
+        }}
+      />
+
+      <TouchableOpacity
+        onPress={saveCity}
+        style={{
+          backgroundColor: '#E8620A',
+          padding: 10,
+          borderRadius: 8,
+          marginTop: 10
+        }}
+      >
+        <Text style={{ color: '#fff', textAlign: 'center' }}>
+          Update Location
+        </Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+);
+}
 // ── DAILY SHLOK ────────────────────────────────────────────────
 function DailyShlok({ lang, onAsk }) {
   const isH = lang === 'hindi';
-  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+  const dayOfYear = useMemo(() => {
+  return Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+}, []);
   const shlok = DAILY_SHLOKS[dayOfYear % DAILY_SHLOKS.length];
 
   const share = async () => {
@@ -323,17 +550,50 @@ function FestivalCountdown({ lang }) {
 }
 
 // ── MOOD → MANTRA ENGINE ───────────────────────────────────────
-function MoodMantra({ lang, onAsk }) {
+function MoodMantra({ lang, onAsk, onMoodChange }) {
   const [sel, setSel] = useState(null);
   const slideAnim = useRef(new Animated.Value(0)).current;
   const isH = lang === 'hindi';
 
-  const pick = key => {
-    if (sel === key) { setSel(null); return; }
+  const pick = async (key) => {
+  try {
+    if (sel === key) {
+      setSel(null);
+      return;
+    }
+
     setSel(key);
+
+    // 🔥 SAVE CURRENT MOOD
+    await AsyncStorage.setItem('user_last_mood', key);
+
+    // 🔥 SAVE HISTORY (LAST 5)
+    const existing = await AsyncStorage.getItem('user_mood_history');
+    let history = existing ? JSON.parse(existing) : [];
+
+    history.unshift({
+      mood: key,
+      date: new Date().toISOString()
+    });
+
+    history = history.slice(0, 5);
+
+    await AsyncStorage.setItem('user_mood_history', JSON.stringify(history));
+
+    // Animation
     slideAnim.setValue(0);
-    Animated.spring(slideAnim, { toValue: 1, friction: 7, tension: 80, useNativeDriver: true }).start();
-  };
+    Animated.spring(slideAnim, {
+      toValue: 1,
+      friction: 7,
+      tension: 80,
+      useNativeDriver: true
+    }).start();
+
+  } catch (e) {
+    console.log("Mood save error:", e);
+  }
+  onMoodChange && onMoodChange();
+};
 
   const mood = sel ? MOODS.find(m => m.key === sel) : null;
 
@@ -400,6 +660,12 @@ function JapaCounter({ lang }) {
   const isH = lang === 'hindi';
 
   useEffect(() => {
+  AsyncStorage.getItem('current_japa_count').then(v => {
+    if (v) setCount(parseInt(v, 10));
+  });
+}, []);
+
+  useEffect(() => {
     AsyncStorage.getItem(`japa_${new Date().toDateString()}`).then(v => {
       if (v) setToday(parseInt(v, 10) || 0);
     });
@@ -414,6 +680,7 @@ function JapaCounter({ lang }) {
     const nc = count + 1;
     const nt = todayTotal + 1;
     setCount(nc);
+    AsyncStorage.setItem('current_japa_count', String(nc));
     setToday(nt);
     AsyncStorage.setItem(`japa_${new Date().toDateString()}`, String(nt));
     if (nc === target) {
@@ -440,7 +707,11 @@ function JapaCounter({ lang }) {
           {JAPA_MANTRAS.map((jm, i) => (
             <TouchableOpacity key={i}
               style={[s.japaChip, mantraIdx === i && { backgroundColor: jm.color + '20', borderColor: jm.color }]}
-              onPress={() => { setMIdx(i); setCount(0); }}>
+              onPress={() => { 
+  setMIdx(i); 
+  setCount(0);
+  AsyncStorage.setItem('current_japa_count', '0');
+}}>
               <Text style={[s.japaChipTxt, mantraIdx === i && { color: jm.color }]}>{jm.short}</Text>
             </TouchableOpacity>
           ))}
@@ -472,7 +743,11 @@ function JapaCounter({ lang }) {
         {[27, 54, 108, 1008].map(t => (
           <TouchableOpacity key={t}
             style={[s.japaTargBtn, target === t && { backgroundColor: m.color + '20', borderColor: m.color }]}
-            onPress={() => { setTarget(t); setCount(0); }}>
+            onPress={() => { 
+  setTarget(t); 
+  setCount(0);
+  AsyncStorage.setItem('current_japa_count', '0');
+}}>
             <Text style={[s.japaTargTxt, target === t && { color: m.color }]}>{t}</Text>
           </TouchableOpacity>
         ))}
@@ -563,10 +838,12 @@ function QuickActions({ lang }) {
   );
 }
 
+
 // ════════════════════════════════════════════════════════════════
 // MAIN HOME SCREEN
 // ════════════════════════════════════════════════════════════════
 export default function HomeScreen() {
+  const [aiLoading, setAiLoading] = useState(false);
   const insets = useSafeAreaInsets();
   const [user,   setUser]   = useState(null);
   const [lang,   setLang]   = useState('hindi');
@@ -574,15 +851,160 @@ export default function HomeScreen() {
   const [streak, setStreak] = useState(0);
   const [ready,  setReady]  = useState(false);
   const headerAnim = useRef(new Animated.Value(0)).current;
+  const [moodHistory, setMoodHistory] = useState([]);
+  const [aiInsight, setAiInsight] = useState(null);
 
-  useEffect(() => {
-    loadUser();
-    Animated.timing(headerAnim, { toValue: 1, duration: 700, useNativeDriver: true }).start();
-  }, []);
+   let aiTimeoutRef = useRef(null);
+
+  const fetchAIInsight = () => {
+  if (aiTimeoutRef.current) {
+    clearTimeout(aiTimeoutRef.current);
+  }
+
+  aiTimeoutRef.current = setTimeout(async () => {
+    try {
+      setAiLoading(true);
+
+      // ✅ GET MOOD
+      const mh = await AsyncStorage.getItem('user_mood_history');
+      let moodHistory = [];
+
+try {
+  moodHistory = mh ? JSON.parse(mh) : [];
+} catch {
+  moodHistory = [];
+}
+
+      // ✅ GET PANCHANG
+      const p = await AsyncStorage.getItem('today_panchang');
+      let parsedPanchang = null;
+
+try {
+  parsedPanchang = p ? JSON.parse(p) : null;
+} catch {
+  parsedPanchang = null;
+}
+
+if (!parsedPanchang || !parsedPanchang.tithi) {
+  parsedPanchang = getLocalFallback();
+}
+
+      // ✅ FALLBACK PANCHANG (CRITICAL FIX)
+      if (!parsedPanchang) {
+        parsedPanchang = getLocalFallback();
+      }
+
+      // ✅ API CALL
+      const controller = new AbortController();
+const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+const res = await fetch(`https://dharmasetu-backend-2c65.onrender.com/api/dharmic-insight`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    moodHistory,
+    panchang: parsedPanchang
+  }),
+  signal: controller.signal
+});
+
+clearTimeout(timeoutId);
+
+      let data = null;
+
+      if (res.ok) {
+        try {
+          data = await res.json();
+        } catch (e) {
+          console.log("Invalid JSON response");
+        }
+      }
+
+      // ✅ SUCCESS
+      if (data && data.guidance && data.guidance.length > 0) {
+        setAiInsight(data);
+      } else {
+        throw new Error("No guidance");
+      }
+
+    } catch (e) {
+      console.log("AI fallback triggered");
+
+      // ✅ FALLBACK GUIDANCE (CRITICAL FIX)
+      let safePanchang = null;
+
+try {
+  const raw = await AsyncStorage.getItem("today_panchang");
+  safePanchang = raw ? JSON.parse(raw) : getLocalFallback();
+} catch {
+  safePanchang = getLocalFallback();
+}
+
+const fallback = getDharmicInsight(safePanchang);
+
+      setAiInsight({
+        guidance: fallback?.points || [
+          "Focus on karma and discipline today",
+          "Chant your Ishta Devata mantra",
+          "Avoid unnecessary stress"
+        ]
+      });
+
+    } finally {
+      setAiLoading(false);
+    }
+  }, 1000); // slightly increased delay for stability
+};
+  
+  const loadMood = async () => {
+  try {
+    const mh = await AsyncStorage.getItem('user_mood_history');
+    if (mh) {
+      try {
+  setMoodHistory(JSON.parse(mh));
+} catch {
+  setMoodHistory([]);
+}
+    }
+  } catch (e) {
+    console.log("Mood load error:", e);
+  }
+};
+useEffect(() => {
+  loadUser();
+
+  Animated.timing(headerAnim, { 
+    toValue: 1, 
+    duration: 700, 
+    useNativeDriver: true 
+  }).start();
+
+  loadMood();
+
+  const timer = setTimeout(() => {
+    fetchAIInsight();
+  }, 1800);
+
+  return () => {
+    clearTimeout(timer);
+
+    // ✅ CRITICAL FIX
+    if (aiTimeoutRef.current) {
+      clearTimeout(aiTimeoutRef.current);
+    }
+  };
+
+}, []);
 
   const loadUser = async () => {
     try {
       const raw = await AsyncStorage.getItem('dharmasetu_user');
+      const storedLang = await AsyncStorage.getItem('user_language');
+if (storedLang) {
+  setLang(storedLang);
+}
       const p   = parseInt(await AsyncStorage.getItem('dharmasetu_pts') || '0', 10);
       setPts(p);
 
@@ -657,7 +1079,10 @@ export default function HomeScreen() {
           {[{ id: 'hindi', l: 'हिं' }, { id: 'english', l: 'EN' }].map(({ id, l }) => (
             <TouchableOpacity key={id}
               style={[s.langBtn, lang === id && s.langBtnOn]}
-              onPress={() => setLang(id)}>
+              onPress={async () => {
+  setLang(id);
+  await AsyncStorage.setItem('user_language', id);
+}}>
               <Text style={[s.langBtnTxt, lang === id && s.langBtnTxtOn]}>{l}</Text>
             </TouchableOpacity>
           ))}
@@ -676,7 +1101,44 @@ export default function HomeScreen() {
         <QuickActions lang={lang} />
 
         {/* Panchang */}
-        <PanchangCard lang={lang} />
+        <PanchangCard />
+        {aiLoading && (
+  <Text style={{ color:'#aaa', marginBottom:10 }}>
+    Loading Dharmic Guidance...
+  </Text>
+)}
+
+{!aiLoading && aiInsight && (
+  <View style={{
+    backgroundColor: 'rgba(52,152,219,0.08)',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(52,152,219,0.3)',
+    marginBottom: 12
+  }}>
+    <Text style={{
+      fontSize: 13,
+      fontWeight: '800',
+      color: '#3498DB',
+      marginBottom: 6
+    }}>
+      🧠 Personalized Guidance
+    </Text>
+
+    {Array.isArray(aiInsight.guidance) && aiInsight.guidance.map((g, i) => (
+      <Text key={i} style={{
+        fontSize: 12,
+        color: 'rgba(253,246,237,0.8)',
+        marginBottom: 4
+      }}>
+        • {g}
+      </Text>
+    ))}
+  </View>
+)}
+
+
 
         {/* Festival Countdown */}
         <FestivalCountdown lang={lang} />
@@ -685,7 +1147,11 @@ export default function HomeScreen() {
         <DailyShlok lang={lang} onAsk={navigateToDharmaChat} />
 
         {/* Mood → Mantra */}
-        <MoodMantra lang={lang} onAsk={navigateToDharmaChat} />
+        <MoodMantra 
+  lang={lang} 
+  onAsk={navigateToDharmaChat}
+  onMoodChange={fetchAIInsight}
+/>
 
         {/* Japa Counter */}
         <JapaCounter lang={lang} />

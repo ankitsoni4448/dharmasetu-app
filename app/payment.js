@@ -31,9 +31,7 @@ const DEFAULT_DONS = [
   { id:'dharma', name:'Dharma Education',nameHi:'धर्म शिक्षा',       desc:'Educate youth about Dharma',  goal:250000, raised:0 },
 ];
 
-function handleDonate(campaign, amount) {
-  Alert.alert("🙏 Thank you!", `Donation of ₹${amount} noted`);
-}
+
 // ─── Backend helpers ──────────────────────────────────────────────
 async function logToBackend(path, body) {
   try {
@@ -46,6 +44,7 @@ async function logToBackend(path, body) {
 
 export default function PaymentScreen() {
   const insets = useSafeAreaInsets();
+  const [paymentMode, setPaymentMode] = useState('');
   const [tab, setTab] = useState('subscription');
   const [plans, setPlans] = useState(DEFAULT_PLANS);
   const [dons, setDons] = useState(DEFAULT_DONS);
@@ -61,6 +60,15 @@ export default function PaymentScreen() {
   });
 
   useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+  if (payConfig) {
+    if (tab === 'subscription') {
+      setPaymentMode(payConfig.subscriptionPayment);
+    } else {
+      setPaymentMode(payConfig.donationPayment);
+    }
+  }
+}, [tab, payConfig]);
 
   const fetchWithTimeout = (url, options, timeoutMs) => {
     return new Promise((resolve, reject) => {
@@ -80,8 +88,17 @@ export default function PaymentScreen() {
       if (dRaw) { const d = JSON.parse(dRaw); if (d?.length) setDons(d); }
       // Load payment config from backend with strict timeout
       try {
-        const r = await fetchWithTimeout(`${BACKEND_URL}/payment/config`, {}, 5000);
-        if (r.ok) { const d = await r.json(); if (d.success) setPayConfig(d); }
+        const r = await fetchWithTimeout(`${BACKEND_URL}/payment-config`, {}, 5000);
+        if (r.ok) {
+  const d = await r.json();
+  setPayConfig(d);
+
+  if (tab === 'subscription') {
+    setPaymentMode(d.subscriptionPayment);
+  } else {
+    setPaymentMode(d.donationPayment);
+  }
+}
       } catch (e) {
         console.log('[Payment] Config fetch failed, proceeding with cached defaults:', e.message);
       }
@@ -89,6 +106,31 @@ export default function PaymentScreen() {
   };
 
   const isH = user?.language === 'hindi';
+  const handleDonate = async (campaign, amount) => {
+  const upiId = payConfig.phonepeUPI;
+
+  if (!upiId) {
+    Alert.alert('Error', 'UPI not configured');
+    return;
+  }
+
+  const url = `upi://pay?pa=${upiId}&pn=DharmaSetu&am=${amount}&cu=INR`;
+
+  try {
+    await Linking.openURL(url);
+
+    await logToBackend('/payment/initiate', {
+      type: 'donation',
+      campaign: campaign.id,
+      amount,
+      method: 'upi',
+      phone: user?.phone || ''
+    });
+
+  } catch (e) {
+    Alert.alert('Error', 'Could not open UPI');
+  }
+};
 
   // ─── Subscribe via UPI ──────────────────────────────────────────
   const subscribeUPI = async (plan) => {
@@ -99,6 +141,13 @@ export default function PaymentScreen() {
     }
     const orderId = `upi_${Date.now()}`;
     // Log to backend
+    await logToBackend('/payment/initiate', {
+  type: 'subscription',
+  planId: plan.id,
+  amount: plan.price,
+  method: 'upi',
+  phone: user?.phone || ''
+});
    
     // Open UPI
     const upiLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=DharmaSetu&am=${plan.price}&cu=INR&tn=${encodeURIComponent('DharmaSetu '+plan.name)}`;
@@ -122,8 +171,19 @@ export default function PaymentScreen() {
 
   // ─── Subscribe via Razorpay ─────────────────────────────────────
   const subscribeRazorpay = async (plan) => {
-    setLoading(true);
-    try {
+
+  // 🔥 ADD THIS BLOCK (THIS IS YOUR MISSING FIX)
+  await logToBackend('/payment/initiate', {
+    type: 'subscription',
+    planId: plan.id,
+    amount: plan.price,
+    method: 'razorpay',
+    phone: user?.phone || ''
+  });
+
+  setLoading(true);
+
+  try {
       // Create order on backend
       const r = await fetch(`${BACKEND_URL}/payment/razorpay/order`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -150,7 +210,6 @@ export default function PaymentScreen() {
     await AsyncStorage.setItem('dharmasetu_plan', plan.id);
     setCurrentPlan(plan.id); setUser(updated);
     // Confirm to backend
-    await logToBackend('/payment/confirm', { orderId, phone: user?.phone || '', planId: plan.id });
     Alert.alert('🎉', isH ? `${plan.nameHi} प्लान activate हो गया! 🕉` : `${plan.name} plan activated! 🕉`);
   };
 
@@ -225,12 +284,20 @@ const verifyPayment = async () => {
 
       <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
 
-        {payConfig.phonepeUPI && (
-          <View style={s.upiBox}>
-            <Text style={s.upiT}>💳 {isH ? 'UPI ID:' : 'UPI ID:'} <Text style={s.upiId}>{payConfig.phonepeUPI}</Text></Text>
-            <Text style={s.upiS}>{isH ? 'GPay, PhonePe, Paytm, BHIM — सब काम करेंगे' : 'Pay via GPay, PhonePe, Paytm, BHIM'}</Text>
-          </View>
-        )}
+        {paymentMode && (
+  <View style={{
+    backgroundColor: '#1A0800',
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E8620A'
+  }}>
+    <Text style={{ color: '#F4A261', textAlign: 'center', fontSize: 12 }}>
+      Payment Mode: {paymentMode === 'upi' ? 'UPI (PhonePe / GPay)' : 'Razorpay'}
+    </Text>
+  </View>
+)}
 
         {tab === 'subscription' && (
           <View>

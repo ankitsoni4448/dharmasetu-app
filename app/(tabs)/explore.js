@@ -7,7 +7,9 @@
 //
 // LOCATION: app/(tabs)/explore.js
 // ════════════════════════════════════════════════════════════════
-
+import * as Speech from 'expo-speech';
+import * as Audio from 'expo-av';
+import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -24,6 +26,32 @@ const { width: SW } = Dimensions.get('window');
 
 // ── BACKEND URL — only non-secret thing the app needs ──────────
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://dharmasetu-backend-2c65.onrender.com';
+// 🔐 PREMIUM ACCESS CHECK
+let cachedPremium = null;
+let lastCheck = 0;
+
+// 🔐 PREMIUM ACCESS CHECK (OPTIMIZED)
+async function checkPremiumAccess(phone) {
+  const now = Date.now();
+
+  // ⛔ Skip API call if checked in last 10 sec
+  if (cachedPremium !== null && now - lastCheck < 10000) {
+    return cachedPremium;
+  }
+
+  try {
+    const res = await fetch(`${BACKEND_URL}/users/access/${phone}`);
+    const data = await res.json();
+
+    cachedPremium = data.isPremium === true;
+    lastCheck = now;
+
+    return cachedPremium;
+  } catch (e) {
+    console.log("Access check error:", e);
+    return false;
+  }
+}
 
 // ── RATE LIMITER (client-side UX only) ────────────────────────
 // Real rate limiting happens on the server
@@ -61,9 +89,18 @@ async function callBackendAI(messages, userProfile, mode, phone) {
   const timeout = setTimeout(() => controller.abort(), 45000);
 
   try {
+    // 🔥 GET CONTEXT FROM STORAGE
+    const moodHistoryRaw = await AsyncStorage.getItem('user_mood_history');
+    const moodHistory = moodHistoryRaw ? JSON.parse(moodHistoryRaw) : [];
+
+    const panchangRaw = await AsyncStorage.getItem('today_panchang');
+    const panchang = panchangRaw ? JSON.parse(panchangRaw) : {};
+
     const res = await fetch(`${BACKEND_URL}/ai/dharma-chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json' 
+      },
       body: JSON.stringify({
         messages,
         userProfile: {
@@ -75,6 +112,10 @@ async function callBackendAI(messages, userProfile, mode, phone) {
         },
         mode,
         phone: phone || '',
+
+        // 🔥 NEW CONTEXT (THIS IS STEP 3 CORE)
+        moodHistory,
+        panchang
       }),
       signal: controller.signal,
     });
@@ -88,11 +129,20 @@ async function callBackendAI(messages, userProfile, mode, phone) {
     }
 
     const data = await res.json();
-    if (!data.success || !data.text) throw new Error('Empty response from server');
+
+    if (!data.success || !data.text) {
+      throw new Error('Empty response from server');
+    }
+
     return data.text;
+
   } catch (e) {
     clearTimeout(timeout);
-    if (e.name === 'AbortError') throw new Error('Request timed out. Please try again.');
+
+    if (e.name === 'AbortError') {
+      throw new Error('Request timed out. Please try again.');
+    }
+
     throw e;
   }
 }
@@ -297,6 +347,8 @@ export default function DharmaChatScreen() {
   const [ready, setReady] = useState(false);
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
   const [loading, setLoading] = useState(false);
   const [hist, setHist] = useState([]);
   const [transId, setTransId] = useState(null);
@@ -380,6 +432,13 @@ export default function DharmaChatScreen() {
       }
     })();
   }, []);
+  useEffect(() => {
+  const unsubscribe = NetInfo.addEventListener(state => {
+    setIsOnline(state.isConnected);
+  });
+
+  return () => unsubscribe();
+}, []);
 
   const scrollDown = useCallback(() => {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
@@ -411,7 +470,13 @@ export default function DharmaChatScreen() {
   }, [scrollDown]);
 
   // ── CORE SEND ────────────────────────────────────────────────
+  
   const coreAutoSend = async (question, lang, name, deity, rashi, nak, phone, isFC) => {
+     const isPremium = await checkPremiumAccess(phone);
+
+    if (!isPremium) {
+     return; // silently block auto-trigger
+     }
     const clean = Sec.clean(question);
     if (!clean || clean.length < 2) return;
     if (!Sec.valid(clean)) return;
@@ -429,7 +494,13 @@ export default function DharmaChatScreen() {
 
     try {
       const messages = [{ role: 'user', content: clean }];
-      const profile = { name, deity, rashi, nakshatra: nak, language: lang };
+      const profile = {
+  name: name || '',
+  deity: deity || '',
+  rashi: rashi || '',
+  nakshatra: nak || '',
+  language: lang || 'hindi'
+};
       const rawA = await callBackendAI(messages, profile, isFC ? 'factcheck' : 'dharma', phone);
       const parsed = parseResp(rawA);
 
@@ -462,9 +533,55 @@ export default function DharmaChatScreen() {
   };
 
   const autoSend = coreAutoSend;
+  const startVoiceInput = async () => {
+  try {
+    setIsListening(true);
 
+    Alert.alert(
+      userLang === 'hindi' ? "🎤 बोलें" : "🎤 Speak Now",
+      userLang === 'hindi' ? "आपकी आवाज सुनी जा रही है..." : "Listening..."
+    );
+
+    setTimeout(() => {
+      setIsListening(false);
+      Alert.prompt(
+        userLang === 'hindi' ? "अपना प्रश्न बोलें (type here)" : "Speak your question (type)",
+        "",
+        (text) => {
+          if (text) {
+            setInput(text);
+            send(text);
+          }
+        }
+      );
+    }, 1000);
+
+  } catch (e) {
+    console.log("Voice error:", e);
+    setIsListening(false);
+  }
+};
   const send = async (txt) => {
     const raw = (txt || input).trim();
+    // 🔐 PREMIUM LOCK CHECK
+const isPremium = await checkPremiumAccess(userPhone);
+
+if (!isPremium) {
+  Alert.alert(
+    "🔒 Premium Required",
+    userLang === 'hindi'
+      ? "यह feature Premium users के लिए है। Upgrade करें 🙏"
+      : "This feature is for Premium users. Please upgrade 🙏",
+    [
+      { text: "Cancel" },
+      {
+        text: "Upgrade",
+        onPress: () => console.log("Go to premium screen")
+      }
+    ]
+  );
+  return;
+}
     if (!raw || loading || !ready) return;
     if (!Sec.ok()) {
       Alert.alert('', userLang === 'hindi' ? 'थोड़ा रुकें।' : 'Please wait a moment.');
@@ -493,7 +610,18 @@ export default function DharmaChatScreen() {
         ...hist.slice(-8),
         { role: 'user', content: clean },
       ];
-      const rawA = await callBackendAI(messages, userProfile, chatMode === 'factcheck' ? 'factcheck' : 'dharma', userPhone);
+      const rawA = await callBackendAI(
+  messages,
+  userProfile || {
+    name: userName,
+    deity: userDeity,
+    rashi: userRashi,
+    nakshatra: userNak,
+    language: userLang
+  },
+  chatMode === 'factcheck' ? 'factcheck' : 'dharma',
+  userPhone
+);
       const parsed = parseResp(rawA);
 
       setMsgs(p => p.map(m => m.id === aid
@@ -606,6 +734,13 @@ export default function DharmaChatScreen() {
             </View>
           </View>
         </View>
+        {!isOnline && (
+  <View style={{ backgroundColor: '#E74C3C', padding: 6 }}>
+    <Text style={{ color: '#fff', textAlign: 'center', fontSize: 12 }}>
+      No Internet Connection
+    </Text>
+  </View>
+)}
 
         {/* Fact Check banner */}
         {chatMode === 'factcheck' && (
@@ -768,29 +903,40 @@ export default function DharmaChatScreen() {
 
         {/* ── INPUT BAR ── */}
         <View style={[s.iBar, { paddingBottom: 10 + insets.bottom }]}>
-          <TextInput
-            style={s.inp}
-            placeholder={phText[userLang] || phText.english}
-            placeholderTextColor="rgba(253,246,237,0.28)"
-            value={input}
-            onChangeText={setInput}
-            multiline
-            maxLength={500}
-            blurOnSubmit={false}
-          />
-          <Animated.View style={{ transform: [{ scale: sendSc }] }}>
-            <TouchableOpacity
-              style={[s.sendBtn, (!input.trim() || loading) && s.sendOff]}
-              onPress={() => send(input)}
-              disabled={!input.trim() || loading}
-              activeOpacity={0.85}>
-              {loading
-                ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={s.sendIco}>›</Text>
-              }
-            </TouchableOpacity>
-          </Animated.View>
-        </View>
+  <TextInput
+    style={s.inp}
+    placeholder={phText[userLang] || phText.english}
+    placeholderTextColor="rgba(253,246,237,0.28)"
+    value={input}
+    onChangeText={setInput}
+    multiline
+    maxLength={500}
+  />
+
+  {/* 🎤 MIC BUTTON */}
+  <TouchableOpacity
+    style={{
+      width: 46,
+      height: 46,
+      borderRadius: 14,
+      backgroundColor: isListening ? '#E74C3C' : '#6B21A8',
+      alignItems: 'center',
+      justifyContent: 'center'
+    }}
+    onPress={startVoiceInput}
+  >
+    <Text style={{ color: '#fff', fontSize: 18 }}>🎤</Text>
+  </TouchableOpacity>
+
+  {/* SEND BUTTON */}
+  <TouchableOpacity
+    style={[s.sendBtn, (!input.trim() || loading) && s.sendOff]}
+    onPress={() => send(input)}
+    disabled={!input.trim() || loading}
+  >
+    <Text style={s.sendIco}>›</Text>
+  </TouchableOpacity>
+</View>
 
       </KeyboardAvoidingView>
 
