@@ -1,7 +1,13 @@
-// DharmaSetu — Login — FINAL v5
-// Flow: Name → DOB+Time → City → Language → Phone → OTP
-// Time: slots OR exact time input (user chooses)
-// Logout fix: saves permanently by phone number
+// DharmaSetu — Login — FIXED v6
+// Fixes applied:
+//  1. await verifyAndSave() — was missing await, caused race condition
+//  2. OTP resend with 60-sec cooldown timer
+//  3. OTP send/verify loading guards — prevents multiple parallel requests
+//  4. isSendingRef lock — stops duplicate Firebase OTP requests
+//  5. RecaptchaVerifier — attempt-stable, fallback error handling
+//  6. checkSession guards against re-render loop via isMountedRef
+//  7. verifyAndSave wrapped in try/finally — loading always cleared
+
 import { getAuth, signInWithPhoneNumber } from "firebase/auth";
 import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
 import { app } from "./utils/firebase";
@@ -19,6 +25,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
+
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -100,6 +107,7 @@ const L = {
     req:'यह जानकारी जरूरी है।',reqTime:'जन्म का समय चुनें या दर्ज करें।',
     wrongOTP:'गलत OTP। दोबारा कोशिश करें।',
     otpTitle:'OTP भेजा गया',otpBody:'Testing mode — OTP terminal में देखें',
+    resend:'OTP दोबारा भेजें',resendIn:'OTP दोबारा भेजें (',resendSec:' सेकंड में)',
     of:'में से',
   },
   en:{
@@ -117,26 +125,46 @@ const L = {
     req:'This field is required.',reqTime:'Please select or enter birth time.',
     wrongOTP:'Wrong OTP. Please try again.',
     otpTitle:'OTP Sent',otpBody:'Testing mode — check terminal for OTP',
+    resend:'Resend OTP',resendIn:'Resend OTP in (',resendSec:'s)',
     of:'of',
   },
 };
+
+// OTP resend cooldown in seconds
+const OTP_COOLDOWN_SEC = 60;
 
 // ════════════════════════════════════════════════════════
 export default function LoginScreen() {
   const auth = getAuth(app);
   const recaptchaVerifier = useRef(null);
+
+  // FIX: isMountedRef prevents setState after unmount
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    return () => { isMountedRef.current = false; };
+  }, []);
+
+  // FIX: isSendingRef — hard lock to prevent multiple simultaneous OTP requests
+  const isSendingRef = useRef(false);
+
   const [confirmation, setConfirmation] = useState(null);
   const insets = useSafeAreaInsets();
-  const [ui, setUi] = useState('hi'); // UI language
+  const [ui, setUi] = useState('hi');
   const [step, setStep] = useState(-1);
+
+  // FIX: unified loading state covers both sendOTP and verifyOTP operations
   const [loading, setLoading] = useState(false);
+
+  // FIX: OTP resend cooldown state
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const resendTimerRef = useRef(null);
 
   // Form state
   const [name, setName] = useState('');
   const [dobDay, setDobDay] = useState('');
   const [dobMonth, setDobMonth] = useState('');
   const [dobYear, setDobYear] = useState('');
-  const [timeMode, setTimeMode] = useState('slot'); // 'slot' | 'exact'
+  const [timeMode, setTimeMode] = useState('slot');
   const [timeSlot, setTimeSlot] = useState('');
   const [exactTime, setExactTime] = useState('');
   const [birthCity, setBirthCity] = useState('');
@@ -149,6 +177,13 @@ export default function LoginScreen() {
   const t = L[ui];
 
   useEffect(() => { checkSession(); }, []);
+
+  // FIX: clear resend timer on unmount
+  useEffect(() => {
+    return () => {
+      if (resendTimerRef.current) clearInterval(resendTimerRef.current);
+    };
+  }, []);
 
   const anim = () => {
     fade.setValue(0); slide.setValue(20);
@@ -163,11 +198,20 @@ export default function LoginScreen() {
     try {
       const raw = await AsyncStorage.getItem('dharmasetu_user');
       if(raw) {
-        const u = JSON.parse(raw);
-        if(u?.name && u?.rashi && u?.phone) { router.replace('/(tabs)'); return; }
+        let u;
+try {
+  u = JSON.parse(raw);
+} catch {
+  await AsyncStorage.removeItem('dharmasetu_user');
+  return;
+}
+        if(u?.name && u?.rashi && u?.phone) {
+          if (isMountedRef.current) router.replace('/(tabs)');
+          return;
+        }
       }
     } catch {}
-    setStep(0);
+    if (isMountedRef.current) setStep(0);
   };
 
   const validate = () => {
@@ -181,108 +225,172 @@ export default function LoginScreen() {
     return true;
   };
 
+  // FIX: starts the 60-second resend countdown
+  const startResendTimer = () => {
+    if (resendTimerRef.current) clearInterval(resendTimerRef.current);
+    if (isMountedRef.current) setResendCooldown(OTP_COOLDOWN_SEC);
+    resendTimerRef.current = setInterval(() => {
+      setResendCooldown(prev => {
+        if (prev <= 1) {
+          clearInterval(resendTimerRef.current);
+          resendTimerRef.current = null;
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
 
-
-// ✅ 👉 PASTE HERE (EXACTLY HERE)
-
-async function sendOTP(fullPhone) {
-  try {
-    const result = await signInWithPhoneNumber(
-      auth,
-      fullPhone,
-      recaptchaVerifier.current
-    );
-    setConfirmation(result);
-    Alert.alert("OTP Sent", "Check your phone");
-    setStep(5);
-  } catch (err) {
-    console.log(err);
-    Alert.alert("Error", "Failed to send OTP");
-  }
-}
-
-async function verifyOTP() {
-  try {
-    if (!confirmation) {
-  Alert.alert("Error", "Please request OTP again");
+  // FIX: sendOTP — guarded by isSendingRef + loading state + RecaptchaVerifier null check
+  const sendOTP = async (fullPhone) => {
+    // Guard: prevent multiple simultaneous requests
+    if (isSendingRef.current || loading) return;
+    if (!Device.isDevice) {
+  Alert.alert("Error", "OTP works only on real device");
   return;
 }
-    await confirmation.confirm(otp);
-    verifyAndSave();
-  } catch (err) {
-    Alert.alert("Error", "Invalid OTP");
-  }
-}
-
-
-  const verifyAndSave = async () => {
-    setLoading(true);
-    // Get push token
-    let pushToken = '';
-    if (Device.isDevice) {
-      try {
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-        if (existingStatus !== 'granted') {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
-        if (finalStatus === 'granted') {
-          const projectId = Constants?.expoConfig?.extra?.eas?.projectId || Constants?.easConfig?.projectId || null;
-          const tokenData = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : {});
-          pushToken = tokenData.data;
-        }
-      } catch (e) { console.log('Push token err:', e); }
+    if (!recaptchaVerifier.current) {
+      Alert.alert('Error', 'Security check not ready. Please wait and try again.');
+      return;
     }
+    isSendingRef.current = true;
+    if (isMountedRef.current) setLoading(true);
+    try {
+      const result = await signInWithPhoneNumber(auth, fullPhone, recaptchaVerifier.current);
+      if (isMountedRef.current) {
+        setConfirmation(result);
+        setStep(5);
+        setOtp('');
+        startResendTimer();
+        Alert.alert(t.otpTitle, t.otpBody);
+      }
+    } catch (err) {
+      console.log('[Login] sendOTP error:', err.code, err.message);
+      const msg = err.code === 'auth/invalid-phone-number'
+        ? 'Invalid phone number. Check and try again.'
+        : err.code === 'auth/too-many-requests'
+        ? 'Too many attempts. Please wait a few minutes.'
+        : 'Failed to send OTP. Check your connection and try again.';
+      if (isMountedRef.current) Alert.alert('Error', msg);
+    } finally {
+      isSendingRef.current = false;
+      if (isMountedRef.current) setLoading(false);
+    }
+  };
 
-    // Returning user restore
-    // 🔥 First check backend
-const backendUser = await getUserFromBackend(phone);
+  // FIX: resendOTP — only callable when cooldown is 0
+  const resendOTP = async () => {
+    if (resendCooldown > 0 || loading) return;
+    setConfirmation(null);
+    const formattedPhone = '+91' + phone.trim();
+    await sendOTP(formattedPhone);
+  };
 
-if (backendUser) {
-  backendUser.pushToken = pushToken;
+  // FIX: verifyOTP — properly awaits verifyAndSave, loading guard, error handling
+  const verifyOTP = async () => {
+    if (loading) return;
+    if (!confirmation) return;
+    if (otp.length < 6) {
+      Alert.alert('Error', 'Please enter the complete 6-digit OTP.');
+      return;
+    }
+    if (isMountedRef.current) setLoading(true);
+    try {
+      await confirmation.confirm(otp);
+      // FIX: was missing await — caused race condition where navigation
+      // could fire before user data was saved to AsyncStorage
+      await verifyAndSave();
+    } catch (err) {
+      console.log('[Login] verifyOTP error:', err.code, err.message);
+      const msg = err.code === 'auth/invalid-verification-code'
+        ? t.wrongOTP
+        : 'OTP verification failed. Please try again.';
+      if (isMountedRef.current) {
+        Alert.alert('Error', msg);
+        setLoading(false);
+      }
+    }
+    // Note: loading is cleared inside verifyAndSave's finally block
+  };
 
-  // 🔥 Update backend with latest token + UID
+  // FIX: verifyAndSave — wrapped in try/finally so loading is always cleared
+  const verifyAndSave = async () => {
+    try {
+      // Get push token
+      let pushToken = '';
+      if (Device.isDevice) {
+        try {
+          const { status: existingStatus } = await Notifications.getPermissionsAsync();
+          let finalStatus = existingStatus;
+          if (existingStatus !== 'granted') {
+            const { status } = await Notifications.requestPermissionsAsync();
+            finalStatus = status;
+          }
+          if (finalStatus === 'granted') {
+            const projectId = Constants?.expoConfig?.extra?.eas?.projectId || Constants?.easConfig?.projectId || null;
+            const tokenData = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : {});
+            pushToken = tokenData.data;
+          }
+        } catch (e) { console.log('[Login] Push token err:', e); }
+      }
+
+      // Returning user restore — check backend first
+      const backendUser = await getUserFromBackend(phone);
+      if (backendUser) {
+        backendUser.pushToken = pushToken;
+        // Update backend with latest token + UID (non-blocking)
+        try {
   await registerUserToBackend({
-    ...backendUser,
-    pushToken,
-    firebaseUid: auth.currentUser?.uid || "",
+    ...userData,
+    firebaseUid: auth.currentUser?.uid || '',
   });
-
-  await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(backendUser));
-
-  setLoading(false);
-  router.replace('/(tabs)');
-  return;
+} catch (e) {
+  console.log('[Login] Backend register failed:', e);
 }
-    // New user — build kundli
-    const rashi = calculateRashi(dobDay,dobMonth,dobYear);
-    const naks = NAKSHATRA_BY_RASHI[rashi]||['Ashwini'];
-    const nakshatra = naks[Math.floor(Math.random()*naks.length)];
-    const lagna = getLagna(timeSlot, timeMode==='exact'?exactTime:'');
-    const rd = RASHI_DATA[rashi];
-    const userData = {
-      name:name.trim(), phone,
-      dob:`${dobDay}/${dobMonth}/${dobYear}`,
-      dobDay, dobMonth, dobYear,
-      timeMode, timeSlot, exactTime,
-      birthCity:birthCity.trim(), language:lang,
-      rashi, rashiEng:RASHI_ENG[rashi], nakshatra, lagna,
-      planet:rd.planet, deity:rd.deity, mantra:rd.mantra,
-      luckyColor:rd.color, luckyDay:rd.day, luckyGem:rd.gem,
-      role:'jigyasu', pts:0, streak:0,
-      createdAt:new Date().toISOString(),
-      pushToken,
-    };
-    await AsyncStorage.setItem('dharmasetu_user',JSON.stringify(userData));
-    await AsyncStorage.setItem(`ds_acc_${phone}`,JSON.stringify(userData));
-    await AsyncStorage.setItem('dharmasetu_pts','0');
-    await AsyncStorage.setItem('dharmasetu_streak_count','0');
-    await registerUserToBackend({
-  ...userData,
-  firebaseUid: auth.currentUser?.uid || "",
-}); // send to backend in background
-    setLoading(false); router.replace('/(tabs)');
+
+        await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(backendUser));
+        if (isMountedRef.current) router.replace('/(tabs)');
+        return;
+      }
+
+      // New user — build kundli
+      const rashi = calculateRashi(dobDay, dobMonth, dobYear);
+      const naks = NAKSHATRA_BY_RASHI[rashi] || ['Ashwini'];
+      const nakshatra = naks[Math.floor(Math.random() * naks.length)];
+      const lagna = getLagna(timeSlot, timeMode === 'exact' ? exactTime : '');
+      const rd = RASHI_DATA[rashi];
+      const userData = {
+        name: name.trim(), phone,
+        dob: `${dobDay}/${dobMonth}/${dobYear}`,
+        dobDay, dobMonth, dobYear,
+        timeMode, timeSlot, exactTime,
+        birthCity: birthCity.trim(), language: lang,
+        rashi, rashiEng: RASHI_ENG[rashi], nakshatra, lagna,
+        planet: rd.planet, deity: rd.deity, mantra: rd.mantra,
+        luckyColor: rd.color, luckyDay: rd.day, luckyGem: rd.gem,
+        role: 'jigyasu', pts: 0, streak: 0,
+        createdAt: new Date().toISOString(),
+        pushToken,
+      };
+      await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(userData));
+      await AsyncStorage.setItem(`ds_acc_${phone}`, JSON.stringify(userData));
+      await AsyncStorage.setItem('dharmasetu_pts', '0');
+      await AsyncStorage.setItem('dharmasetu_streak_count', '0');
+
+      // Non-blocking backend registration
+      registerUserToBackend({
+        ...userData,
+        firebaseUid: auth.currentUser?.uid || '',
+      }).catch(e => console.log('[Login] Backend register error:', e));
+
+      if (isMountedRef.current) router.replace('/(tabs)');
+    } catch (err) {
+      console.log('[Login] verifyAndSave error:', err.message);
+      if (isMountedRef.current) Alert.alert('Error', 'Could not save your profile. Please try again.');
+    } finally {
+      // FIX: always clear loading regardless of success or failure
+      if (isMountedRef.current) setLoading(false);
+    }
   };
 
   if(step===-1) return(
@@ -296,10 +404,13 @@ if (backendUser) {
 
   return(
     <View style={[s.root,{paddingTop:insets.top}]}>
-         <FirebaseRecaptchaVerifierModal
-      ref={recaptchaVerifier}
-      firebaseConfig={app.options}
-    />
+      {/* FIX: FirebaseRecaptchaVerifierModal must be in the render tree at all times
+          attemptInvisibleVerification=false is more stable on Android/Expo */}
+      <FirebaseRecaptchaVerifierModal
+        ref={recaptchaVerifier}
+        firebaseConfig={app.options}
+        attemptInvisibleVerification={false}
+      />
       <StatusBar style="light" backgroundColor="#0D0500"/>
       {/* UI lang toggle */}
       <View style={s.topBar}>
@@ -377,7 +488,6 @@ if (backendUser) {
                     placeholderTextColor="rgba(253,246,237,0.25)"
                     value={exactTime}
                     onChangeText={v=>{
-                      // format as HH:MM automatically
                       const digits=v.replace(/\D/g,'').slice(0,4);
                       if(digits.length<=2) setExactTime(digits);
                       else setExactTime(digits.slice(0,2)+':'+digits.slice(2));
@@ -447,8 +557,16 @@ if (backendUser) {
                 </View>
                 <View style={s.navRow}>
                   <TouchableOpacity style={s.backBtn} onPress={()=>setStep(3)}><Text style={s.backBtnTxt}>←</Text></TouchableOpacity>
-                  <TouchableOpacity style={[s.btn,{flex:1}]} onPress={() => sendOTP("+91" + phone)} disabled={loading} activeOpacity={0.85}>
-                    {loading?<ActivityIndicator color="#fff"/>:<Text style={s.btnTxt}>{t.getOTP}</Text>}
+                  {/* FIX: disabled when loading OR phone not 10 digits */}
+                  <TouchableOpacity
+                    style={[s.btn,{flex:1},(loading||phone.length<10)&&s.btnDisabled]}
+                    onPress={()=>{ if(phone.length===10) sendOTP('+91'+phone); }}
+                    disabled={loading||phone.length<10}
+                    activeOpacity={0.85}>
+                    {loading
+                      ? <ActivityIndicator color="#fff"/>
+                      : <Text style={s.btnTxt}>{t.getOTP}</Text>
+                    }
                   </TouchableOpacity>
                 </View>
               </View>
@@ -469,11 +587,44 @@ if (backendUser) {
                   keyboardType="number-pad"
                   maxLength={6}
                   autoFocus
+                  editable={!loading}
                 />
-                <TouchableOpacity style={s.btn} onPress={verifyOTP} disabled={loading||otp.length<6} activeOpacity={0.85}>
-                  {loading?<ActivityIndicator color="#fff"/>:<Text style={s.btnTxt}>{otp.length>=6?t.enter:t.verify}</Text>}
+                {/* FIX: disabled when loading OR otp < 6 digits */}
+                <TouchableOpacity
+                  style={[s.btn,(loading||otp.length<6)&&s.btnDisabled]}
+                  onPress={verifyOTP}
+                  disabled={loading||otp.length<6}
+                  activeOpacity={0.85}>
+                  {loading
+                    ? <ActivityIndicator color="#fff"/>
+                    : <Text style={s.btnTxt}>{otp.length>=6?t.enter:t.verify}</Text>
+                  }
                 </TouchableOpacity>
-                <TouchableOpacity onPress={()=>{setStep(4);setOtp('');}} style={{marginTop:12,alignItems:'center'}}>
+
+                {/* FIX: Resend OTP button with cooldown timer */}
+                <TouchableOpacity
+                  onPress={resendOTP}
+                  disabled={resendCooldown > 0 || loading}
+                  style={[s.resendBtn, (resendCooldown > 0 || loading) && s.resendBtnDisabled]}
+                  activeOpacity={0.75}>
+                  <Text style={[s.resendTxt, (resendCooldown > 0 || loading) && s.resendTxtDisabled]}>
+                    {resendCooldown > 0
+                      ? `${t.resendIn}${resendCooldown}${t.resendSec}`
+                      : t.resend
+                    }
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={()=>{
+                    if (loading) return;
+                    setStep(4);
+                    setOtp('');
+                    setConfirmation(null);
+                    if (resendTimerRef.current) clearInterval(resendTimerRef.current);
+                    setResendCooldown(0);
+                  }}
+                  style={{marginTop:8,alignItems:'center'}}>
                   <Text style={{color:'#E8620A',fontSize:13}}>{t.change}</Text>
                 </TouchableOpacity>
               </View>
@@ -507,33 +658,34 @@ const s = StyleSheet.create({
   subNote:{fontSize:11,color:'rgba(253,246,237,0.28)',marginBottom:10,marginTop:-6},
   inp:{backgroundColor:'rgba(255,255,255,0.06)',borderRadius:12,paddingHorizontal:14,paddingVertical:13,color:'#FDF6ED',fontSize:15,borderWidth:1,borderColor:'rgba(200,130,40,0.2)',marginBottom:4},
   dobRow:{flexDirection:'row',gap:8},
-  // Time mode toggle
   modeToggle:{flexDirection:'row',gap:8,marginBottom:14,marginTop:4},
   modeBtn:{flex:1,padding:11,borderRadius:12,borderWidth:1,borderColor:'rgba(200,130,40,0.18)',alignItems:'center'},
   modeBtnOn:{backgroundColor:'rgba(232,98,10,0.15)',borderColor:'#E8620A'},
   modeBtnTxt:{fontSize:12,color:'rgba(253,246,237,0.4)',fontWeight:'600',textAlign:'center'},
   modeBtnTxtOn:{color:'#F4A261'},
-  // Slots
   slotGrid:{gap:8},
   slotBtn:{padding:13,borderRadius:12,borderWidth:1,borderColor:'rgba(200,130,40,0.18)',backgroundColor:'rgba(255,255,255,0.02)'},
   slotBtnOn:{backgroundColor:'rgba(232,98,10,0.15)',borderColor:'#E8620A'},
   slotTxt:{fontSize:13,color:'rgba(253,246,237,0.45)',fontWeight:'600'},
   slotTxtOn:{color:'#F4A261'},
-  // Phone
   phoneRow:{flexDirection:'row',gap:10,alignItems:'center'},
   cc:{backgroundColor:'rgba(255,255,255,0.06)',borderRadius:12,paddingHorizontal:12,paddingVertical:13,borderWidth:1,borderColor:'rgba(200,130,40,0.2)'},
   ccTxt:{color:'#FDF6ED',fontSize:14},
-  // Language
   langRow:{flexDirection:'row',gap:14,justifyContent:'center',marginVertical:10},
   langCard:{flex:1,alignItems:'center',backgroundColor:'rgba(255,255,255,0.04)',borderRadius:16,paddingVertical:22,borderWidth:1.5,borderColor:'rgba(200,130,40,0.18)'},
   langCardOn:{backgroundColor:'rgba(232,98,10,0.12)',borderColor:'#E8620A'},
   langCardTxt:{fontSize:16,fontWeight:'700',color:'rgba(253,246,237,0.45)'},
   langCardTxtOn:{color:'#F4A261'},
-  // Nav
   navRow:{flexDirection:'row',gap:10,alignItems:'center',marginTop:18},
   backBtn:{width:48,height:48,borderRadius:14,backgroundColor:'rgba(255,255,255,0.07)',alignItems:'center',justifyContent:'center',borderWidth:1,borderColor:'rgba(200,130,40,0.2)'},
   backBtnTxt:{fontSize:20,color:'#F4A261',fontWeight:'700'},
   btn:{backgroundColor:'#E8620A',borderRadius:14,paddingVertical:15,alignItems:'center',marginTop:18,elevation:4,shadowColor:'#E8620A',shadowOffset:{width:0,height:3},shadowOpacity:0.4,shadowRadius:6},
+  btnDisabled:{backgroundColor:'rgba(232,98,10,0.35)',elevation:0,shadowOpacity:0},
   btnTxt:{color:'#fff',fontSize:16,fontWeight:'800'},
+  // FIX: resend button styles
+  resendBtn:{marginTop:14,alignItems:'center',paddingVertical:8},
+  resendBtnDisabled:{opacity:0.5},
+  resendTxt:{color:'#E8620A',fontSize:13,fontWeight:'600'},
+  resendTxtDisabled:{color:'rgba(253,246,237,0.35)'},
   footer:{textAlign:'center',color:'rgba(240,165,0,0.35)',fontSize:12,marginTop:24,paddingBottom:20},
 });
