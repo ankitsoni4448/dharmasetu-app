@@ -26,30 +26,56 @@ const { width: SW } = Dimensions.get('window');
 
 // ── BACKEND URL — only non-secret thing the app needs ──────────
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://dharmasetu-backend-2c65.onrender.com';
-// 🔐 PREMIUM ACCESS CHECK
+
+// ── PREMIUM CHECK (cached 10 s) ─────────────────────────────────
 let cachedPremium = null;
 let lastCheck = 0;
-
-// 🔐 PREMIUM ACCESS CHECK (OPTIMIZED)
 async function checkPremiumAccess(phone) {
   const now = Date.now();
-
-  // ⛔ Skip API call if checked in last 10 sec
-  if (cachedPremium !== null && now - lastCheck < 10000) {
-    return cachedPremium;
-  }
-
+  if (cachedPremium !== null && now - lastCheck < 10000) return cachedPremium;
   try {
     const res = await fetch(`${BACKEND_URL}/users/access/${phone}`);
     const data = await res.json();
-
     cachedPremium = data.isPremium === true;
     lastCheck = now;
-
     return cachedPremium;
   } catch (e) {
-    console.log("Access check error:", e);
+    console.log('Access check error:', e);
     return false;
+  }
+}
+
+// ── DAILY FREE QUOTA (5 questions / day) ────────────────────────
+const FREE_DAILY_LIMIT = 5;
+const QUOTA_KEY = 'ds_daily_quota';
+
+async function getDailyQuota() {
+  try {
+    const raw = await AsyncStorage.getItem(QUOTA_KEY);
+    if (raw) {
+      const obj = JSON.parse(raw);
+      const today = new Date().toDateString();
+      if (obj.date === today) return obj.count || 0;
+    }
+  } catch {}
+  return 0;
+}
+
+async function incrementDailyQuota() {
+  try {
+    const count = await getDailyQuota();
+    await AsyncStorage.setItem(QUOTA_KEY, JSON.stringify({ date: new Date().toDateString(), count: count + 1 }));
+  } catch {}
+}
+
+async function canSendMessage(phone) {
+  try {
+    const isPremium = await checkPremiumAccess(phone);
+    if (isPremium) return { allowed: true, isPremium: true };
+    const count = await getDailyQuota();
+    return { allowed: count < FREE_DAILY_LIMIT, isPremium: false, used: count, limit: FREE_DAILY_LIMIT };
+  } catch {
+    return { allowed: true, isPremium: false };
   }
 }
 
@@ -472,11 +498,11 @@ export default function DharmaChatScreen() {
   // ── CORE SEND ────────────────────────────────────────────────
   
   const coreAutoSend = async (question, lang, name, deity, rashi, nak, phone, isFC) => {
-     const isPremium = await checkPremiumAccess(phone);
-
-    if (!isPremium) {
-     return; // silently block auto-trigger
-     }
+    // Quota check — free users get FREE_DAILY_LIMIT per day
+    const access = await canSendMessage(phone);
+    if (!access.allowed) {
+      return; // silently skip auto-trigger when quota exhausted
+    }
     const clean = Sec.clean(question);
     if (!clean || clean.length < 2) return;
     if (!Sec.valid(clean)) return;
@@ -512,6 +538,7 @@ export default function DharmaChatScreen() {
       { role: 'user', content: clean },
       { role: 'assistant', content: rawA },
       ].slice(-16));
+      await incrementDailyQuota();
       streamText(parsed.body, aid);
     } catch (err) {
       console.error('AutoSend err:', err.message);
@@ -533,56 +560,34 @@ export default function DharmaChatScreen() {
   };
 
   const autoSend = coreAutoSend;
-  const startVoiceInput = async () => {
-  try {
-    setIsListening(true);
-
-    Alert.alert(
-      userLang === 'hindi' ? "🎤 बोलें" : "🎤 Speak Now",
-      userLang === 'hindi' ? "आपकी आवाज सुनी जा रही है..." : "Listening..."
-    );
-
-    setTimeout(() => {
-      setIsListening(false);
-      Alert.prompt(
-        userLang === 'hindi' ? "अपना प्रश्न बोलें (type here)" : "Speak your question (type)",
-        "",
-        (text) => {
-          if (text) {
-            setInput(text);
-            send(text);
-          }
-        }
-      );
-    }, 1000);
-
-  } catch (e) {
-    console.log("Voice error:", e);
+  const startVoiceInput = () => {
+    // Alert.prompt is iOS-only; on Android we simply focus the input bar.
     setIsListening(false);
-  }
-};
+    Alert.alert(
+      userLang === 'hindi' ? '🎤 प्रश्न टाइप करें' : '🎤 Type your question',
+      userLang === 'hindi'
+        ? 'नीचे input box में अपना प्रश्न लिखें।'
+        : 'Please type your question in the input box below.',
+      [{ text: userLang === 'hindi' ? 'ठीक है' : 'OK' }]
+    );
+  };
   const send = async (txt) => {
     const raw = (txt || input).trim();
-    // 🔐 PREMIUM LOCK CHECK
-const isPremium = await checkPremiumAccess(userPhone);
-
-if (!isPremium) {
-  Alert.alert(
-    "🔒 Premium Required",
-    userLang === 'hindi'
-      ? "यह feature Premium users के लिए है। Upgrade करें 🙏"
-      : "This feature is for Premium users. Please upgrade 🙏",
-    [
-      { text: "Cancel" },
-      {
-        text: "Upgrade",
-        onPress: () => console.log("Go to premium screen")
-      }
-    ]
-  );
-  return;
-}
     if (!raw || loading || !ready) return;
+
+    // Quota check — free users get FREE_DAILY_LIMIT per day
+    const access = await canSendMessage(userPhone);
+    if (!access.allowed) {
+      const isH = userLang === 'hindi';
+      Alert.alert(
+        isH ? '🔒 दैनिक सीमा' : '🔒 Daily Limit Reached',
+        isH
+          ? `आज के ${FREE_DAILY_LIMIT} प्रश्न पूछे जा चुके हैं।\nPremium लें और असीमित प्रश्न पूछें 🙏`
+          : `You've used all ${FREE_DAILY_LIMIT} free questions for today.\nUpgrade to Premium for unlimited access 🙏`,
+        [{ text: isH ? 'ठीक है' : 'OK' }]
+      );
+      return;
+    }
     if (!Sec.ok()) {
       Alert.alert('', userLang === 'hindi' ? 'थोड़ा रुकें।' : 'Please wait a moment.');
       return;
@@ -632,6 +637,7 @@ if (!isPremium) {
       { role: 'user', content: clean },
       { role: 'assistant', content: rawA },
       ].slice(-16));
+      await incrementDailyQuota();
       streamText(parsed.body, aid);
     } catch (err) {
       console.error('Send err:', err.message);

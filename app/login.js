@@ -334,26 +334,7 @@ try {
         } catch (e) { console.log('[Login] Push token err:', e); }
       }
 
-      // Returning user restore — check backend first
-      const backendUser = await getUserFromBackend(phone);
-      if (backendUser) {
-        backendUser.pushToken = pushToken;
-        // Update backend with latest token + UID (non-blocking)
-        try {
-  await registerUserToBackend({
-    ...userData,
-    firebaseUid: auth.currentUser?.uid || '',
-  });
-} catch (e) {
-  console.log('[Login] Backend register failed:', e);
-}
-
-        await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(backendUser));
-        if (isMountedRef.current) router.replace('/(tabs)');
-        return;
-      }
-
-      // New user — build kundli
+      // Build userData early so it's available for both new and returning user paths
       const rashi = calculateRashi(dobDay, dobMonth, dobYear);
       const naks = NAKSHATRA_BY_RASHI[rashi] || ['Ashwini'];
       const nakshatra = naks[Math.floor(Math.random() * naks.length)];
@@ -372,6 +353,26 @@ try {
         createdAt: new Date().toISOString(),
         pushToken,
       };
+
+      // Returning user restore — check backend first
+      const backendUser = await getUserFromBackend(phone);
+      if (backendUser) {
+        backendUser.pushToken = pushToken;
+        // Update backend with latest token + UID (non-blocking)
+        try {
+          await registerUserToBackend({
+            ...backendUser,
+            firebaseUid: auth.currentUser?.uid || '',
+          });
+        } catch (e) {
+          console.log('[Login] Backend register failed:', e);
+        }
+        await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(backendUser));
+        if (isMountedRef.current) router.replace('/(tabs)');
+        return;
+      }
+
+      // New user — save kundli (userData already built above)
       await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(userData));
       await AsyncStorage.setItem(`ds_acc_${phone}`, JSON.stringify(userData));
       await AsyncStorage.setItem('dharmasetu_pts', '0');
