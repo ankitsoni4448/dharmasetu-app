@@ -8,9 +8,10 @@
 // LOCATION: app/(tabs)/explore.js
 // ════════════════════════════════════════════════════════════════
 import * as Speech from 'expo-speech';
-import * as Audio from 'expo-av';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import VoiceInputModal from '../components/VoiceInputModal';
+import { handleVoiceTap, VoiceStatus } from '../utils/voiceInput';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -20,7 +21,11 @@ import {
   Vibration, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { submitFeedback } from '../register_backend';
+import { submitFeedback, submitAIFeedback } from '../register_backend';
+// P4 — Journey, analytics, scale
+import { saveChatHistory, recordEngagement, touchStreak, getStreak } from '../utils/journey';
+import { track, EVENTS, captureError } from '../utils/analytics';
+import { getScriptureContext } from '../utils/futureScale';
 
 const { width: SW } = Dimensions.get('window');
 
@@ -246,6 +251,9 @@ const SUGG = {
     'भगवद्गीता का कर्म योग क्या है?',
     'मेरे करियर की समस्या का धार्मिक हल बताएं',
     'एकादशी व्रत का महत्व और विधि बताएं',
+    'शनि की साढ़ेसाती में क्या करें?',
+    'गायत्री मंत्र का अर्थ और महत्व बताएं',
+    'धर्म और अधर्म में क्या अंतर है?',
   ],
   english: [
     'Why is my marriage delayed? What does Jyotish say?',
@@ -254,8 +262,33 @@ const SUGG = {
     'Explain Karma Yoga from Bhagavad Gita',
     'What does my Rashi say about my career?',
     'What is the significance of Ekadashi fast?',
+    'How to deal with Shani Sade Sati?',
+    'What is the meaning of Gayatri Mantra?',
+    'What is Dharma according to Vedic tradition?',
   ],
 };
+
+// P4: Context-aware follow-up suggestions based on last AI topic
+function getFollowUpSuggestions(lastBotMessage = '', lang = 'hindi') {
+  const msg = lastBotMessage.toLowerCase();
+  const isH = lang === 'hindi';
+  if (msg.includes('karma') || msg.includes('कर्म')) return isH
+    ? ['कर्म और भाग्य में क्या अंतर है?', 'नकारात्मक कर्म कैसे ठीक करें?', 'कर्मफल कब मिलता है?']
+    : ['Difference between karma and fate?', 'How to correct negative karma?', 'When does karma take effect?'];
+  if (msg.includes('shiva') || msg.includes('शिव')) return isH
+    ? ['शिव के 108 नाम क्या हैं?', 'महाशिवरात्रि का महत्व?', 'शिव पूजा की विधि?']
+    : ['What are 108 names of Shiva?', 'Significance of Mahashivratri?', 'How to worship Shiva?'];
+  if (msg.includes('kundli') || msg.includes('jyotish') || msg.includes('ज्योतिष')) return isH
+    ? ['मेरी लग्न राशि क्या है?', 'दशा और अंतर्दशा क्या होती है?', 'ग्रह दोष कैसे शांत करें?']
+    : ['What is my Lagna?', 'What is Dasha and Antardasha?', 'How to pacify planetary doshas?'];
+  if (msg.includes('gita') || msg.includes('गीता')) return isH
+    ? ['गीता के 18 अध्याय क्या हैं?', 'भक्ति योग क्या है?', 'ज्ञान योग और कर्म योग में अंतर?']
+    : ['What are 18 chapters of Gita?', 'What is Bhakti Yoga?', 'Difference between Jnana and Karma Yoga?'];
+  // Default follow-ups
+  return isH
+    ? ['और विस्तार से बताएं', 'इसका व्यावहारिक अनुप्रयोग?', 'शास्त्र में क्या लिखा है?']
+    : ['Tell me more', 'Practical application?', 'What do the scriptures say?'];
+}
 
 // ════════════════════════════════════════════════════════════════
 // UI COMPONENTS
@@ -374,6 +407,7 @@ export default function DharmaChatScreen() {
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
+  const [voiceModalVisible, setVoiceModalVisible] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [loading, setLoading] = useState(false);
   const [hist, setHist] = useState([]);
@@ -560,16 +594,26 @@ export default function DharmaChatScreen() {
   };
 
   const autoSend = coreAutoSend;
+  const [voiceStatus, setVoiceStatus] = useState(VoiceStatus.IDLE);
+  const voiceHandleRef = useRef(null);
+
   const startVoiceInput = () => {
-    // Alert.prompt is iOS-only; on Android we simply focus the input bar.
-    setIsListening(false);
-    Alert.alert(
-      userLang === 'hindi' ? '🎤 प्रश्न टाइप करें' : '🎤 Type your question',
-      userLang === 'hindi'
-        ? 'नीचे input box में अपना प्रश्न लिखें।'
-        : 'Please type your question in the input box below.',
-      [{ text: userLang === 'hindi' ? 'ठीक है' : 'OK' }]
-    );
+    handleVoiceTap({
+      lang: userLang,
+      onOpenModal: () => setVoiceModalVisible(true),
+      onResult:    (text) => { if (text) { setInput(text); } },
+      onStatus:    (s) => setVoiceStatus(s),
+    }).then(handle => {
+      if (handle) voiceHandleRef.current = handle;
+    }).catch(() => setVoiceModalVisible(true));
+  };
+
+  const stopVoiceInput = async () => {
+    if (voiceHandleRef.current?.stop) {
+      await voiceHandleRef.current.stop();
+      voiceHandleRef.current = null;
+    }
+    setVoiceStatus(VoiceStatus.IDLE);
   };
   const send = async (txt) => {
     const raw = (txt || input).trim();
@@ -639,8 +683,20 @@ export default function DharmaChatScreen() {
       ].slice(-16));
       await incrementDailyQuota();
       streamText(parsed.body, aid);
+      // P4: Journey tracking — record engagement + persist chat history
+      recordEngagement('chat_question', { mode: chatMode }).catch(() => {});
+      touchStreak().catch(() => {});
+      track(EVENTS.QUESTION_SENT, { mode: chatMode, lang: userLang });
+      // Persist conversation for continuity
+      const updatedMsgs = [
+        ...hist.slice(-8),
+        { role: 'user', content: clean },
+        { role: 'assistant', content: rawA },
+      ];
+      saveChatHistory(updatedMsgs).catch(() => {});
     } catch (err) {
       console.error('Send err:', err.message);
+      captureError(err, { screen: 'DharmaChat', action: 'send' });
       const errMsg = {
         hindi: err.message === 'RATE_LIMIT'
           ? 'थोड़ा रुकें। बहुत जल्दी प्रश्न पूछे गए।'
@@ -659,7 +715,17 @@ export default function DharmaChatScreen() {
   };
 
   // ── ACTIONS ──────────────────────────────────────────────────
-  const handleUp = async msg => { if (msg.feedback) return; Vibration.vibrate(20); setMsgs(p => p.map(m => m.id === msg.id ? { ...m, feedback: 'up' } : m)); try { const resp = await submitFeedback(msg.question || '', msg.body, 'up', '', userPhone); console.log('[Feedback] Up response:', resp); } catch (e) { console.error('[Feedback] Up error:', e); } addPts('thumbsup').then(setPts); };
+  const handleUp = async msg => {
+    if (msg.feedback) return;
+    Vibration.vibrate(20);
+    setMsgs(p => p.map(m => m.id === msg.id ? { ...m, feedback: 'up' } : m));
+    try {
+      await submitFeedback(msg.question || '', msg.body, 'up', '', userPhone);
+      // Also send to AI moderation queue (non-blocking)
+      submitAIFeedback(msg.question || '', msg.body, 'up', '', userPhone, userLang);
+    } catch (e) { console.error('[Feedback] Up error:', e); }
+    addPts('thumbsup').then(setPts);
+  };
   const handleDown = async msg => { if (!msg.feedback) { setFbMsgId(msg.id); } };
 
   const submitFb = async (reason) => {
@@ -671,14 +737,9 @@ export default function DharmaChatScreen() {
 
     try {
       if (msg) {
-        const resp = await submitFeedback(
-          msg.question || '',
-          msg.body,
-          'down',
-          reason,
-          userPhone
-        );
-        console.log('[Feedback] Down response:', resp);
+        await submitFeedback(msg.question || '', msg.body, 'down', reason, userPhone);
+        // Also send to richer AI feedback moderation queue
+        submitAIFeedback(msg.question || '', msg.body, 'down', reason, userPhone, userLang);
       }
     } catch (e) {
       console.error('[Feedback] Down error:', e);
@@ -919,17 +980,18 @@ export default function DharmaChatScreen() {
     maxLength={500}
   />
 
-  {/* 🎤 MIC BUTTON */}
+  {/* 🎤 MIC BUTTON — opens VoiceInputModal (Android-safe) */}
   <TouchableOpacity
     style={{
       width: 46,
       height: 46,
       borderRadius: 14,
-      backgroundColor: isListening ? '#E74C3C' : '#6B21A8',
+      backgroundColor: voiceModalVisible ? '#E74C3C' : '#6B21A8',
       alignItems: 'center',
-      justifyContent: 'center'
+      justifyContent: 'center',
     }}
     onPress={startVoiceInput}
+    activeOpacity={0.85}
   >
     <Text style={{ color: '#fff', fontSize: 18 }}>🎤</Text>
   </TouchableOpacity>
@@ -945,6 +1007,23 @@ export default function DharmaChatScreen() {
 </View>
 
       </KeyboardAvoidingView>
+
+      {/* Voice Input Modal — P4: real-time status-aware */}
+      <VoiceInputModal
+        visible={voiceModalVisible}
+        lang={userLang}
+        voiceStatus={voiceStatus}
+        onStopVoice={() => {
+          stopVoiceInput().then(() => {
+            // result comes via onResult callback in startVoiceInput
+          });
+        }}
+        onClose={() => { setVoiceModalVisible(false); stopVoiceInput(); }}
+        onSubmit={(text) => {
+          setVoiceModalVisible(false);
+          send(text);
+        }}
+      />
 
       <FbModal
         visible={!!fbMsgId}

@@ -113,6 +113,30 @@ export async function submitFeedback(question, wrongAnswer, rating, reason, phon
     throw err;
   }
 }
+
+/**
+ * Submit rich AI feedback to the admin moderation queue.
+ * Powers the admin AI feedback moderation panel.
+ * Non-blocking — never breaks the chat flow.
+ */
+export async function submitAIFeedback(question, ai_answer, rating, reason, phone, language = 'hindi') {
+  try {
+    await fetch(`${BACKEND_URL}/ai/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question:  question  || '',
+        ai_answer: ai_answer || '',
+        rating:    rating    || 'down',
+        reason:    reason    || '',
+        phone:     phone     || '',
+        language:  language  || 'hindi',
+      }),
+    });
+  } catch {
+    // Silent fail — never break chat flow
+  }
+}
 export async function getUserFromBackend(phone) {
   try {
     const res = await fetch(`${BACKEND_URL}/user/get?phone=${phone}`);
@@ -132,6 +156,62 @@ export async function getUserFromBackend(phone) {
     return data.user;
   } catch (err) {
     console.log("Fetch user error:", err);
+    return null;
+  }
+}
+
+/**
+ * Exchange Firebase UID + phone for a backend JWT token.
+ * Call this after successful Firebase OTP verification in login.js.
+ * The JWT is stored via saveAuthToken() and used for /users/me validation.
+ *
+ * Non-blocking — login still works if backend is offline.
+ *
+ * @param {string} phone       - User's phone number
+ * @param {string} firebaseUid - Firebase UID from auth result
+ * @returns {string|null}       - JWT token or null on failure
+ */
+export async function requestAppToken(phone, firebaseUid) {
+  if (!phone || !firebaseUid) return null;
+  try {
+    const res = await fetch(`${BACKEND_URL}/auth/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, firebaseUid }),
+    });
+    if (!res.ok) { console.log('[Auth] Token request failed:', res.status); return null; }
+    const data = await res.json();
+    if (data.success && data.token) {
+      console.log('[Auth] ✅ JWT token received from backend');
+      return data.token;
+    }
+    return null;
+  } catch (err) {
+    console.log('[Auth] Token request skipped (offline):', err.message);
+    return null;
+  }
+}
+
+/**
+ * Recover premium status for a user who paid but lost their session.
+ * Call from payment.js or settings.js as a "Restore Purchase" button.
+ *
+ * @param {string} phone    - User phone
+ * @param {string} orderId  - Optional last order ID
+ */
+export async function recoverPremium(phone, orderId = '') {
+  if (!phone) return null;
+  try {
+    const res = await fetch(`${BACKEND_URL}/payment/recover`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, orderId }),
+    });
+    const data = await res.json();
+    console.log('[Premium] Recovery result:', data);
+    return data;
+  } catch (err) {
+    console.log('[Premium] Recovery failed:', err.message);
     return null;
   }
 }

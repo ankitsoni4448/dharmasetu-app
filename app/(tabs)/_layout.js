@@ -1,3 +1,7 @@
+// ════════════════════════════════════════════════════════════════
+// DharmaSetu — Tab Layout (3 tabs: Home, DharmaChat, Profile)
+// FILE: app/(tabs)/_layout.js
+// ════════════════════════════════════════════════════════════════
 import { Tabs } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -11,9 +15,9 @@ function TabIcon({ emoji, focused }) {
 }
 
 const ic = StyleSheet.create({
-  wrap: { alignItems: 'center', justifyContent: 'center', paddingTop: 4 },
-  wrapOn: {},
-  emoji: { fontSize: 22, opacity: 0.4 },
+  wrap:    { alignItems: 'center', justifyContent: 'center', paddingTop: 4 },
+  wrapOn:  {},
+  emoji:   { fontSize: 22, opacity: 0.4 },
   emojiOn: { opacity: 1 },
 });
 
@@ -31,7 +35,7 @@ export default function TabLayout() {
           paddingBottom: 8 + insets.bottom,
           paddingTop: 4,
         },
-        tabBarActiveTintColor: '#E8620A',
+        tabBarActiveTintColor:   '#E8620A',
         tabBarInactiveTintColor: 'rgba(253,246,237,0.3)',
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginTop: 2 },
       }}
@@ -48,6 +52,13 @@ export default function TabLayout() {
         options={{
           title: 'DharmaChat',
           tabBarIcon: ({ focused }) => <TabIcon emoji="💬" focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ focused }) => <TabIcon emoji="👤" focused={focused} />,
         }}
       />
     </Tabs>

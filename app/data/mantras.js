@@ -1,47 +1,207 @@
-const baseMantras = [
-  {
-    title: "Gayatri Mantra",
-    deity: "Surya",
-    text: "ॐ भूर्भुवः स्वः तत्सवितुर्वरेण्यं भर्गो देवस्य धीमहि धियो यो नः प्रचोदयात्",
-    meaning: "Wisdom and enlightenment",
-    bestTime: "Sunrise",
-    direction: "East",
-    posture: "Padmasana",
-    environment: "Clean space",
-    malas: 108,
-    purpose: ["knowledge", "clarity"]
-  },
-  {
-    title: "Maha Mrityunjaya",
-    deity: "Shiva",
-    text: "ॐ त्र्यम्बकं यजामहे सुगन्धिं पुष्टिवर्धनम्",
-    meaning: "Healing and protection",
-    bestTime: "Morning/Night",
-    direction: "North",
-    posture: "Meditation",
-    environment: "Incense place",
-    malas: 108,
-    purpose: ["health", "healing"]
-  },
-  {
-    title: "Hanuman Mantra",
-    deity: "Hanuman",
-    text: "ॐ नमो भगवते हनुमते नमः",
-    meaning: "Strength and courage",
-    bestTime: "Tuesday",
-    direction: "East",
-    posture: "Sitting",
-    environment: "Temple",
-    malas: 108,
-    purpose: ["strength", "fear"]
-  }
-];
+// DharmaSetu — Mantra Data (30 real mantras, scales to 200+)
+export const MANTRA_CATEGORIES = ['All','Shiva','Vishnu','Devi','Ganesh','Hanuman','Surya','Krishna','Universal'];
 
-// 🔥 AUTO-GENERATE 150+
-export const MANTRAS = Array.from({ length: 150 }, (_, i) => {
-  const base = baseMantras[i % baseMantras.length];
-  return {
-    ...base,
-    id: base.title.replace(/\s/g, "").toLowerCase() + "_" + i
-  };
-});
+export const MANTRAS = [
+  { id:'gayatri', title:'Gayatri Mantra', deity:'Surya', category:'Universal',
+    text:'ॐ भूर्भुवः स्वः तत्सवितुर्वरेण्यं भर्गो देवस्य धीमहि धियो यो नः प्रचोदयात्',
+    transliteration:'Om Bhur Bhuvah Svah Tat Savitur Varenyam Bhargo Devasya Dhimahi Dhiyo Yo Nah Prachodayat',
+    meaningHi:'हे सूर्य देव, हमारी बुद्धि को प्रकाशित करें और हमें सन्मार्ग पर चलाएं।',
+    meaningEn:'O Sun God, illuminate our intellect and lead us on the righteous path.',
+    benefits:['Knowledge','Clarity','Spiritual growth'], malas:108, bestTime:'Sunrise/Sunset', direction:'East', posture:'Padmasana' },
+
+  { id:'mahamrityunjaya', title:'Maha Mrityunjaya', deity:'Shiva', category:'Shiva',
+    text:'ॐ त्र्यम्बकं यजामहे सुगन्धिं पुष्टिवर्धनम् उर्वारुकमिव बन्धनान् मृत्योर्मुक्षीय मामृतात्',
+    transliteration:'Om Tryambakam Yajamahe Sugandhim Pushtivardhanam Urvarukamiva Bandhanan Mrityor Mukshiya Maamritat',
+    meaningHi:'हे तीन नेत्रों वाले शिव, हमें मृत्यु के बंधन से मुक्त करें।',
+    meaningEn:'O three-eyed Shiva, liberate us from the bondage of death and grant immortality.',
+    benefits:['Health','Protection','Liberation'], malas:108, bestTime:'Early morning', direction:'North', posture:'Sukhasana' },
+
+  { id:'om_namah_shivay', title:'Om Namah Shivaya', deity:'Shiva', category:'Shiva',
+    text:'ॐ नमः शिवाय',
+    transliteration:'Om Namah Shivaya',
+    meaningHi:'मैं शिव को नमस्कार करता हूँ। शिव ही सत्य है, शिव ही कल्याण है।',
+    meaningEn:'I bow to Lord Shiva. Shiva is truth, Shiva is auspiciousness.',
+    benefits:['Peace','Purification','Divine grace'], malas:108, bestTime:'Morning/Evening', direction:'North', posture:'Any' },
+
+  { id:'shiva_panchakshara', title:'Shiva Panchakshara', deity:'Shiva', category:'Shiva',
+    text:'नमः शिवाय',
+    transliteration:'Namah Shivaya',
+    meaningHi:'पञ्चाक्षरी मंत्र — पाँच तत्वों का प्रतीक, शिव की पूर्ण शरण।',
+    meaningEn:'The five-syllable mantra representing the five elements — complete refuge in Shiva.',
+    benefits:['Balance','Inner peace','Liberation'], malas:108, bestTime:'Any time', direction:'North', posture:'Any' },
+
+  { id:'om_namo_narayanaya', title:'Om Namo Narayanaya', deity:'Vishnu', category:'Vishnu',
+    text:'ॐ नमो नारायणाय',
+    transliteration:'Om Namo Narayanaya',
+    meaningHi:'मैं भगवान नारायण को प्रणाम करता हूँ जो सर्वव्यापी और संरक्षक हैं।',
+    meaningEn:'I bow to Lord Narayana, the all-pervading protector of the universe.',
+    benefits:['Protection','Prosperity','Divine love'], malas:108, bestTime:'Morning', direction:'East', posture:'Padmasana' },
+
+  { id:'om_namo_bhagavate', title:'Om Namo Bhagavate Vasudevaya', deity:'Vishnu', category:'Vishnu',
+    text:'ॐ नमो भगवते वासुदेवाय',
+    transliteration:'Om Namo Bhagavate Vasudevaya',
+    meaningHi:'हे वासुदेव (कृष्ण), मैं आपको प्रणाम करता हूँ।',
+    meaningEn:'I bow to Lord Vasudeva (Krishna), the indweller of all beings.',
+    benefits:['Devotion','Moksha','Divine grace'], malas:108, bestTime:'Morning/Evening', direction:'East', posture:'Sukhasana' },
+
+  { id:'vishnu_sahasranama_seed', title:'Vishnu Beej Mantra', deity:'Vishnu', category:'Vishnu',
+    text:'ॐ विष्णवे नमः',
+    transliteration:'Om Vishnave Namah',
+    meaningHi:'भगवान विष्णु को नमस्कार — सत्व गुण के स्वामी, संरक्षक।',
+    meaningEn:'Salutation to Lord Vishnu — lord of sattva, the preserver.',
+    benefits:['Preservation','Harmony','Sattvic mind'], malas:108, bestTime:'Thursday morning', direction:'East', posture:'Any' },
+
+  { id:'hare_krishna', title:'Hare Krishna Mahamantra', deity:'Krishna', category:'Krishna',
+    text:'हरे कृष्ण हरे कृष्ण कृष्ण कृष्ण हरे हरे। हरे राम हरे राम राम राम हरे हरे।',
+    transliteration:'Hare Krishna Hare Krishna Krishna Krishna Hare Hare. Hare Rama Hare Rama Rama Rama Hare Hare.',
+    meaningHi:'हे कृष्ण, हे राम — मुझे माया के बंधन से मुक्त करें और भक्ति दें।',
+    meaningEn:'O Krishna, O Rama — free me from illusion and grant me pure devotion.',
+    benefits:['Devotion','Joy','Liberation from maya'], malas:108, bestTime:'Any time', direction:'East', posture:'Any' },
+
+  { id:'krishna_beej', title:'Krishna Beej Mantra', deity:'Krishna', category:'Krishna',
+    text:'ॐ क्लीं कृष्णाय नमः',
+    transliteration:'Om Kleem Krishnaya Namah',
+    meaningHi:'भगवान कृष्ण के आकर्षण और प्रेम की शक्ति को जगाने का बीज मंत्र।',
+    meaningEn:'Seed mantra to awaken the power of Lord Krishna\'s divine love and attraction.',
+    benefits:['Love','Attraction','Joy'], malas:108, bestTime:'Morning', direction:'East', posture:'Sukhasana' },
+
+  { id:'hanuman_beej', title:'Hanuman Beej Mantra', deity:'Hanuman', category:'Hanuman',
+    text:'ॐ ऐं भ्रीं हनुमते रामदूताय नमः',
+    transliteration:'Om Aim Bhrim Hanumate Ramdutaya Namah',
+    meaningHi:'हे रामदूत हनुमान, मुझे शक्ति, साहस और भय से मुक्ति दें।',
+    meaningEn:'O Hanuman, messenger of Ram — grant me strength, courage and freedom from fear.',
+    benefits:['Courage','Strength','Fear removal'], malas:108, bestTime:'Tuesday/Saturday', direction:'South', posture:'Standing or sitting' },
+
+  { id:'hanuman_moola', title:'Hanuman Moola Mantra', deity:'Hanuman', category:'Hanuman',
+    text:'ॐ नमो हनुमते रुद्रावताराय',
+    transliteration:'Om Namo Hanumate Rudravataraya',
+    meaningHi:'हे रुद्रावतार हनुमान, मैं आपको नमस्कार करता हूँ।',
+    meaningEn:'O Hanuman, avatar of Rudra — I bow to you.',
+    benefits:['Protection','Obstacle removal','Courage'], malas:108, bestTime:'Early morning', direction:'South', posture:'Any' },
+
+  { id:'bajrang_baan_seed', title:'Bajrang Beej Mantra', deity:'Hanuman', category:'Hanuman',
+    text:'ॐ हनुमते नमः',
+    transliteration:'Om Hanumate Namah',
+    meaningHi:'हनुमान जी को सरल नमस्कार — शक्ति और रक्षा के लिए।',
+    meaningEn:'Simple salutation to Hanuman — for strength and protection.',
+    benefits:['Daily protection','Strength','Positivity'], malas:27, bestTime:'Any time', direction:'East', posture:'Any' },
+
+  { id:'ganesh_moola', title:'Ganesh Moola Mantra', deity:'Ganesh', category:'Ganesh',
+    text:'ॐ गं गणपतये नमः',
+    transliteration:'Om Gam Ganapataye Namah',
+    meaningHi:'हे गणपति, समस्त विघ्नों का नाश करें और हमारे मार्ग को शुभ बनाएं।',
+    meaningEn:'O Ganapati, remove all obstacles and make our path auspicious.',
+    benefits:['Obstacle removal','New beginnings','Success'], malas:108, bestTime:'Before any new work', direction:'East', posture:'Any' },
+
+  { id:'ganesh_beej', title:'Ganesh Beej Mantra', deity:'Ganesh', category:'Ganesh',
+    text:'ॐ गं',
+    transliteration:'Om Gam',
+    meaningHi:'गणेश का बीज मंत्र — सभी विघ्नों का नाश करने की शक्ति।',
+    meaningEn:'Seed mantra of Ganesha — carries the power to remove all obstacles.',
+    benefits:['Focus','Obstacle removal','Quick result'], malas:108, bestTime:'Morning', direction:'East', posture:'Any' },
+
+  { id:'vakratunda', title:'Vakratunda Mahakaya', deity:'Ganesh', category:'Ganesh',
+    text:'वक्रतुण्ड महाकाय सूर्यकोटि समप्रभ। निर्विघ्नं कुरु मे देव सर्वकार्येषु सर्वदा।',
+    transliteration:'Vakratunda Mahakaya Suryakoti Samaprabha. Nirvighnam Kuru Me Deva Sarvakaryeshu Sarvada.',
+    meaningHi:'हे वक्रतुण्ड, करोड़ सूर्यों के समान तेजस्वी — मेरे सभी कार्य निर्विघ्न करें।',
+    meaningEn:'O Vakratunda, radiant as a crore suns — make all my works free of obstacles.',
+    benefits:['Success in all tasks','Clarity','Divine blessings'], malas:108, bestTime:'Start of day', direction:'East', posture:'Any' },
+
+  { id:'saraswati_beej', title:'Saraswati Beej Mantra', deity:'Devi', category:'Devi',
+    text:'ॐ ऐं सरस्वत्यै नमः',
+    transliteration:'Om Aim Saraswatyai Namah',
+    meaningHi:'हे सरस्वती माता, मुझे विद्या, बुद्धि और वाणी का वरदान दें।',
+    meaningEn:'O Goddess Saraswati, bless me with knowledge, intellect and eloquence.',
+    benefits:['Knowledge','Learning','Creativity'], malas:108, bestTime:'Morning / Wednesday', direction:'East', posture:'Sukhasana' },
+
+  { id:'lakshmi_beej', title:'Lakshmi Beej Mantra', deity:'Devi', category:'Devi',
+    text:'ॐ श्रीं महालक्ष्म्यै नमः',
+    transliteration:'Om Shreem Mahalakshmyai Namah',
+    meaningHi:'हे महालक्ष्मी, धन, समृद्धि और वैभव का आशीर्वाद दें।',
+    meaningEn:'O Mahalakshmi, bless me with wealth, prosperity and abundance.',
+    benefits:['Prosperity','Wealth','Fortune'], malas:108, bestTime:'Friday morning', direction:'East', posture:'Sukhasana' },
+
+  { id:'durga_moola', title:'Durga Moola Mantra', deity:'Devi', category:'Devi',
+    text:'ॐ दुं दुर्गायै नमः',
+    transliteration:'Om Dum Durgayai Namah',
+    meaningHi:'हे दुर्गा माता, मुझे शक्ति दें और सभी नकारात्मकता से बचाएं।',
+    meaningEn:'O Goddess Durga, grant me power and protect me from all negativity.',
+    benefits:['Protection','Power','Fearlessness'], malas:108, bestTime:'Evening / Navratri', direction:'South-East', posture:'Any' },
+
+  { id:'kali_mantra', title:'Kali Beej Mantra', deity:'Devi', category:'Devi',
+    text:'ॐ क्रीं कालिकायै नमः',
+    transliteration:'Om Kreem Kalikayai Namah',
+    meaningHi:'हे काली माता, अज्ञान और नकारात्मकता का नाश करें।',
+    meaningEn:'O Kali, destroy ignorance and negativity, grant liberation.',
+    benefits:['Transformation','Dark energy removal','Liberation'], malas:108, bestTime:'Night / Amavasya', direction:'South', posture:'Any' },
+
+  { id:'surya_moola', title:'Surya Moola Mantra', deity:'Surya', category:'Surya',
+    text:'ॐ घृणि सूर्याय नमः',
+    transliteration:'Om Ghrini Suryaya Namah',
+    meaningHi:'हे सूर्य देव, आपको प्रणाम। जीवन, ऊर्जा और स्वास्थ्य दें।',
+    meaningEn:'O Sun God, I bow to you. Grant life force, energy and health.',
+    benefits:['Health','Energy','Vitality'], malas:108, bestTime:'Sunrise', direction:'East', posture:'Standing (Surya Namaskar)' },
+
+  { id:'aditya_hridaya_seed', title:'Aditya Hridaya Seed', deity:'Surya', category:'Surya',
+    text:'ॐ आदित्याय नमः',
+    transliteration:'Om Adityaya Namah',
+    meaningHi:'हे आदित्य, प्रकाश और ऊर्जा के देव — नमस्कार।',
+    meaningEn:'O Aditya, lord of light and energy — salutations.',
+    benefits:['Confidence','Success','Eye health'], malas:12, bestTime:'Sunrise Sunday', direction:'East', posture:'Standing' },
+
+  { id:'ram_taraka', title:'Ram Naam Taraka', deity:'Vishnu', category:'Vishnu',
+    text:'ॐ श्री रामाय नमः',
+    transliteration:'Om Shri Ramaya Namah',
+    meaningHi:'हे श्री राम, आपको नमस्कार। मर्यादा और धर्म के आदर्श।',
+    meaningEn:'O Shri Ram — salutations. The ideal of righteousness and dharma.',
+    benefits:['Righteousness','Family harmony','Moral strength'], malas:108, bestTime:'Morning', direction:'East', posture:'Any' },
+
+  { id:'ram_moola', title:'Ram Beej Mantra', deity:'Vishnu', category:'Vishnu',
+    text:'ॐ रां रामाय नमः',
+    transliteration:'Om Ram Ramaya Namah',
+    meaningHi:'राम का शक्तिशाली बीज मंत्र — सभी बाधाओं का नाश करता है।',
+    meaningEn:'Powerful seed mantra of Ram — destroys all obstacles.',
+    benefits:['Victory','Protection','Dharma'], malas:108, bestTime:'Morning', direction:'East', posture:'Any' },
+
+  { id:'shanti_mantra', title:'Shanti Mantra', deity:'Universal', category:'Universal',
+    text:'ॐ शांतिः शांतिः शांतिः',
+    transliteration:'Om Shantih Shantih Shantih',
+    meaningHi:'तीनों तापों (आधिदैविक, आधिभौतिक, आध्यात्मिक) की शांति हो।',
+    meaningEn:'Peace in body, mind and soul — peace at all three levels of existence.',
+    benefits:['Peace','Stress relief','Harmony'], malas:27, bestTime:'Any time', direction:'Any', posture:'Any' },
+
+  { id:'om_namah', title:'Pranava — Om', deity:'Universal', category:'Universal',
+    text:'ॐ',
+    transliteration:'Om',
+    meaningHi:'ब्रह्मांड का आदि नाद — सृष्टि, स्थिति और संहार का प्रतीक।',
+    meaningEn:'The primordial sound of the universe — creation, preservation and dissolution.',
+    benefits:['Meditation','Concentration','Universal harmony'], malas:108, bestTime:'Any time', direction:'Any', posture:'Padmasana' },
+
+  { id:'asato_ma', title:'Asato Ma Sadgamaya', deity:'Universal', category:'Universal',
+    text:'असतो मा सद्गमय। तमसो मा ज्योतिर्गमय। मृत्योर्मा अमृतं गमय। ॐ शांतिः शांतिः शांतिः।',
+    transliteration:'Asato Ma Sadgamaya. Tamaso Ma Jyotirgamaya. Mrityorma Amritam Gamaya.',
+    meaningHi:'हमें असत्य से सत्य की ओर, अंधकार से प्रकाश की ओर, मृत्यु से अमृत की ओर ले जाएं।',
+    meaningEn:'Lead us from untruth to truth, from darkness to light, from death to immortality.',
+    benefits:['Wisdom','Spiritual awakening','Clarity'], malas:27, bestTime:'Morning/Evening', direction:'East', posture:'Any' },
+
+  { id:'shiv_beej', title:'Shiva Beej Mantra', deity:'Shiva', category:'Shiva',
+    text:'ॐ नमः शिवाय हुं हं नमः',
+    transliteration:'Om Namah Shivaya Hum Ham Namah',
+    meaningHi:'शिव की परम शक्ति को जागृत करने वाला बीज मंत्र।',
+    meaningEn:'Seed mantra awakening the supreme power of Shiva.',
+    benefits:['Deep meditation','Kundalini','Transformation'], malas:108, bestTime:'Night/Shivaratri', direction:'North', posture:'Padmasana' },
+
+  { id:'sudarshana', title:'Sudarshana Mantra', deity:'Vishnu', category:'Vishnu',
+    text:'ॐ सुदर्शनाय विद्महे महाज्वालाय धीमहि तन्नो चक्रः प्रचोदयात्',
+    transliteration:'Om Sudarshanaaya Vidmahe Mahajvalaaya Dhimahi Tanno Chakrah Prachodayat',
+    meaningHi:'विष्णु के सुदर्शन चक्र की शक्ति — नकारात्मकता और बुराई का नाश।',
+    meaningEn:'The power of Vishnu\'s Sudarshana Chakra — destroys negativity and evil.',
+    benefits:['Protection from evil','Negative energy removal','Divine shield'], malas:108, bestTime:'Evening', direction:'East', posture:'Any' },
+
+  { id:'baglamukhi_seed', title:'Baglamukhi Beej', deity:'Devi', category:'Devi',
+    text:'ॐ ह्लीं बगलामुखी सर्वदुष्टानाम् वाचं मुखं पदं स्तम्भय जिह्वां कीलय बुद्धिं विनाशय ह्लीं ॐ स्वाहा',
+    transliteration:'Om Hleem Baglamukhi Sarvadushtanam Vacham Mukham Padam Stambhaya Jihvam Kilaya Buddhim Vinashaya Hleem Om Svaha',
+    meaningHi:'बगलामुखी माता — शत्रुओं को रोकने और वाक्-शक्ति देने वाली।',
+    meaningEn:'Goddess Baglamukhi — stills enemies and grants the power of speech and victory.',
+    benefits:['Victory over enemies','Legal matters','Speech power'], malas:108, bestTime:'Tuesday morning', direction:'East', posture:'Any' },
+];

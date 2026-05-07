@@ -195,7 +195,9 @@ function PanchangCard({ lang }) {
 
   const getTodayKey = () => {
     const d = new Date();
-    return `panchang_${d.getDate()}_${d.getMonth()}_${d.getFullYear()}`;
+    // P3 FIX: city-aware cache key prevents stale panchang when city changes
+    const citySlug = (city || 'default').toLowerCase().replace(/\s+/g, '_');
+    return `panchang_${citySlug}_${d.getDate()}_${d.getMonth()}_${d.getFullYear()}`;
   };
 
   React.useEffect(() => {
@@ -265,11 +267,13 @@ function PanchangCard({ lang }) {
   const saveCity = async () => {
     if (!inputCity.trim()) { Alert.alert('', isH ? 'शहर का नाम दर्ज करें' : 'Enter city name'); return; }
     await AsyncStorage.setItem('user_city', inputCity.trim());
-    const cacheKey = getTodayKey();
-    await AsyncStorage.removeItem(cacheKey);
+    // P3 FIX: clear old city keys so new city loads fresh
+    const oldKey = getTodayKey();
+    await AsyncStorage.removeItem(oldKey);
+    await AsyncStorage.removeItem('today_panchang');
     setCity(inputCity.trim());
     setLoading(true);
-    Alert.alert(isH ? 'सेव हो गया' : 'Saved', isH ? 'शहर अपडेट हो गया' : 'City updated');
+    Alert.alert(isH ? 'सेव हो गया' : 'Saved', isH ? 'शहर अपडेट हो गया। नया पंचांग लोड हो रहा है।' : 'City updated. Loading fresh Panchang.');
   };
 
   if (loading) {
@@ -291,6 +295,17 @@ function PanchangCard({ lang }) {
 
   return (
     <View style={s.card}>
+      {/* P3: Fallback warning banner */}
+      {safeData._isFallback && (
+        <View style={{ backgroundColor:'rgba(201,131,10,0.1)', borderRadius:8, padding:8, marginBottom:10, flexDirection:'row', alignItems:'center', gap:8, borderWidth:1, borderColor:'rgba(201,131,10,0.25)' }}>
+          <Text style={{ fontSize:11, color:'#C9830A', flex:1 }}>
+            {isH ? '📡 अनुमानित डेटा — इंटरनेट उपलब्ध होने पर ताज़ा होगा' : '📡 Estimated data — will refresh when online'}
+          </Text>
+          <TouchableOpacity onPress={() => { setLoading(true); setData(null); }} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+            <Text style={{ fontSize:11, color:'#E8620A', fontWeight:'700' }}>↻</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       {/* HEADER */}
       <View style={s.panHdr}>
         <View>
