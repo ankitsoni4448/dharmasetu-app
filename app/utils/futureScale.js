@@ -19,6 +19,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://dharmasetu-backend-2c65.onrender.com';
 
+// ── ABORT TIMEOUT HELPER ─────────────────────────────────────────
+// AbortSignal.timeout() is NOT supported on Android Hermes (Expo SDK 54).
+// Use this helper everywhere instead.
+function makeAbortTimeout(ms) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), ms);
+  return {
+    signal: controller.signal,
+    clear:  () => clearTimeout(id),
+  };
+}
+
 // ── OFFLINE ACTION QUEUE ─────────────────────────────────────────
 // Queues actions when offline, retried when network returns
 const QUEUE_KEY = 'ds_offline_queue';
@@ -83,6 +95,7 @@ async function processQueuedAction({ type, payload }) {
  * @param {{ lang, category, useSemantics }} opts
  */
 export async function searchScriptures(query, { lang, category, useSemantics = false } = {}) {
+  const t = makeAbortTimeout(8000);
   try {
     const params = new URLSearchParams({ q: query });
     if (lang)     params.set('lang', lang);
@@ -90,13 +103,15 @@ export async function searchScriptures(query, { lang, category, useSemantics = f
     // Future: params.set('semantic', '1') when embeddings are ready
 
     const res  = await fetch(`${BACKEND}/library/books/search?${params}`, {
-      signal: AbortSignal.timeout(8000),
+      signal: t.signal,
     });
     const data = await res.json();
     return data.results || data.books || [];
   } catch(e) {
     console.log('[Search] Error:', e.message);
     return [];
+  } finally {
+    t.clear();
   }
 }
 
@@ -110,17 +125,18 @@ export async function searchScriptures(query, { lang, category, useSemantics = f
  * Returns approved answers or empty if unavailable.
  */
 export async function getScriptureContext(question, { lang = 'hindi' } = {}) {
+  const t = makeAbortTimeout(5000);
   try {
     const res = await fetch(`${BACKEND}/chat/context`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question, lang }),
-      signal: AbortSignal.timeout(5000),
+      signal: t.signal,
     });
     if (!res.ok) return [];
     const data = await res.json();
     return data.context || [];
-  } catch { return []; }
+  } catch { return []; } finally { t.clear(); }
 }
 
 // ── OBJECT STORAGE STUB ──────────────────────────────────────────
@@ -149,16 +165,19 @@ export function getBookFileUrl(book) {
  * @param {string} bookId
  */
 export async function triggerBookIndex(bookId) {
+  const t = makeAbortTimeout(10000);
   try {
     const res = await fetch(`${BACKEND}/admin/library/index/${bookId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(10000),
+      signal: t.signal,
     });
     return res.ok;
   } catch(e) {
     console.log('[Scale] triggerBookIndex error:', e.message);
     return false;
+  } finally {
+    t.clear();
   }
 }
 
@@ -187,14 +206,15 @@ export async function registerPushToken(phone, token) {
  */
 export async function flushAnalyticsToBackend(events = []) {
   if (!events.length) return;
+  const t = makeAbortTimeout(5000);
   try {
     await fetch(`${BACKEND}/analytics/events`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ events }),
-      signal: AbortSignal.timeout(5000),
+      signal: t.signal,
     });
-  } catch {}
+  } catch {} finally { t.clear(); }
 }
 
 // ── EXPORT SUMMARY ───────────────────────────────────────────────

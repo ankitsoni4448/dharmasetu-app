@@ -145,9 +145,16 @@ export async function startRecording(lang = 'hindi') {
  */
 export async function stopAndTranscribe(recording, lang = 'hindi') {
   if (!recording) return null;
+  // Always reset audio mode — even if transcription fails
   try {
     await recording.stopAndUnloadAsync();
-    await setPlaybackMode();
+  } catch (e) {
+    console.log('[Voice] stopAndUnload error (ignored):', e.message);
+  } finally {
+    try { await setPlaybackMode(); } catch {}
+  }
+
+  try {
     const uri = recording.getURI();
     if (!uri) return null;
 
@@ -155,25 +162,30 @@ export async function stopAndTranscribe(recording, lang = 'hindi') {
     const formData = new FormData();
     formData.append('audio', {
       uri,
-      name:  'voice.m4a',
-      type:  'audio/m4a',
+      name: 'voice.m4a',
+      type: 'audio/m4a',
     });
     formData.append('lang', lang === 'hindi' ? 'hi-IN' : 'en-IN');
 
-    const res = await fetch(`${BACKEND}/voice/transcribe`, {
-      method: 'POST',
-      body:   formData,
-      headers: { 'Content-Type': 'multipart/form-data' },
-      signal: AbortSignal.timeout(15000),
-    });
-
-    if (!res.ok) {
-      console.log('[Voice] Transcription failed:', res.status);
-      return null;
+    // AbortSignal.timeout is not supported on Android Hermes — use AbortController
+    const controller = new AbortController();
+    const timeoutId  = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(`${BACKEND}/voice/transcribe`, {
+        method:  'POST',
+        body:    formData,
+        headers: { 'Content-Type': 'multipart/form-data' },
+        signal:  controller.signal,
+      });
+      if (!res.ok) {
+        console.log('[Voice] Transcription failed:', res.status);
+        return null;
+      }
+      const data = await res.json();
+      return data.transcript || null;
+    } finally {
+      clearTimeout(timeoutId);
     }
-
-    const data = await res.json();
-    return data.transcript || null;
   } catch (e) {
     console.log('[Voice] stopAndTranscribe error:', e.message);
     return null;

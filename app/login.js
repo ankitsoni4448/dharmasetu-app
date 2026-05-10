@@ -8,9 +8,8 @@
 //  6. checkSession guards against re-render loop via isMountedRef
 //  7. verifyAndSave wrapped in try/finally — loading always cleared
 
-import { getAuth, signInWithPhoneNumber } from "firebase/auth";
-import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
-import { app } from "./utils/firebase";
+import { signInWithPhoneNumber } from "firebase/auth";
+import { app, auth } from "./utils/firebase";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerUserToBackend, getUserFromBackend } from './register_backend';
 import { router } from 'expo-router';
@@ -23,17 +22,21 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+let Notifications = null;
 
+if (Constants.appOwnership !== 'expo') {
+  Notifications = require('expo-notifications');
+
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 // ── KUNDLI DATA ──────────────────────────────────────────────────────
 const RASHIS = ['Mesh','Vrishabh','Mithun','Kark','Simha','Kanya','Tula','Vrishchik','Dhanu','Makar','Kumbh','Meen'];
 const RASHI_ENG = { Mesh:'Aries',Vrishabh:'Taurus',Mithun:'Gemini',Kark:'Cancer',Simha:'Leo',Kanya:'Virgo',Tula:'Libra',Vrishchik:'Scorpio',Dhanu:'Sagittarius',Makar:'Capricorn',Kumbh:'Aquarius',Meen:'Pisces' };
@@ -135,8 +138,7 @@ const OTP_COOLDOWN_SEC = 60;
 
 // ════════════════════════════════════════════════════════
 export default function LoginScreen() {
-  const auth = getAuth(app);
-  const recaptchaVerifier = useRef(null);
+  
 
   // FIX: isMountedRef prevents setState after unmount
   const isMountedRef = useRef(true);
@@ -249,14 +251,20 @@ try {
   Alert.alert("Error", "OTP works only on real device");
   return;
 }
-    if (!recaptchaVerifier.current) {
-      Alert.alert('Error', 'Security check not ready. Please wait and try again.');
-      return;
-    }
+    
     isSendingRef.current = true;
     if (isMountedRef.current) setLoading(true);
     try {
-      const result = await signInWithPhoneNumber(auth, fullPhone, recaptchaVerifier.current);
+      // Expo Go cannot run Firebase OTP properly
+  if (Constants.appOwnership === 'expo') {
+    Alert.alert(
+      'Development Build Required',
+      'OTP login works only in Development APK, not Expo Go.'
+    );
+    return;
+  }
+
+  const result = await signInWithPhoneNumber(auth, fullPhone);
       if (isMountedRef.current) {
         setConfirmation(result);
         setStep(5);
@@ -318,7 +326,7 @@ try {
     try {
       // Get push token
       let pushToken = '';
-      if (Device.isDevice) {
+      if (Device.isDevice && Notifications) {
         try {
           const { status: existingStatus } = await Notifications.getPermissionsAsync();
           let finalStatus = existingStatus;
@@ -394,24 +402,25 @@ try {
     }
   };
 
-  if(step===-1) return(
-    <View style={[s.root,{alignItems:'center',justifyContent:'center'}]}>
-      <Text style={{fontSize:52}}>🕉</Text>
-      <ActivityIndicator color="#E8620A" style={{marginTop:18}}/>
-    </View>
-  );
+  // NOTE: do NOT early-return here — FirebaseRecaptchaVerifierModal must
+  // stay mounted from first render so recaptchaVerifier.current is never null
+  // when sendOTP is eventually called. Show a loading overlay instead.
 
   const pct = Math.round((Math.min(step,5)/5)*100);
 
   return(
     <View style={[s.root,{paddingTop:insets.top}]}>
-      {/* FIX: FirebaseRecaptchaVerifierModal must be in the render tree at all times
-          attemptInvisibleVerification=false is more stable on Android/Expo */}
-      <FirebaseRecaptchaVerifierModal
-        ref={recaptchaVerifier}
-        firebaseConfig={app.options}
-        attemptInvisibleVerification={false}
-      />
+      {/* FirebaseRecaptchaVerifierModal MUST stay in the tree at all times.
+          - androidHardwareAccelerationDisabled prevents WebView GPU crash on Android
+          - attemptInvisibleVerification=false is more stable on physical devices */}
+
+      {/* Loading overlay — replaces early return so verifier stays mounted */}
+      {step === -1 && (
+        <View style={s.loadingOverlay}>
+          <Text style={{fontSize:52}}>🕉</Text>
+          <ActivityIndicator color="#E8620A" style={{marginTop:18}}/>
+        </View>
+      )}
       <StatusBar style="light" backgroundColor="#0D0500"/>
       {/* UI lang toggle */}
       <View style={s.topBar}>
@@ -641,6 +650,7 @@ try {
 
 const s = StyleSheet.create({
   root:{flex:1,backgroundColor:'#0D0500'},
+  loadingOverlay:{...StyleSheet.absoluteFillObject,backgroundColor:'#0D0500',alignItems:'center',justifyContent:'center',zIndex:99},
   topBar:{flexDirection:'row',justifyContent:'flex-end',gap:6,paddingHorizontal:16,paddingTop:8,paddingBottom:4},
   uiBtn:{paddingHorizontal:12,paddingVertical:6,borderRadius:20,borderWidth:1,borderColor:'rgba(200,130,40,0.2)'},
   uiBtnOn:{backgroundColor:'rgba(232,98,10,0.15)',borderColor:'#E8620A'},

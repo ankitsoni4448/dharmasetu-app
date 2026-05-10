@@ -48,3 +48,14 @@ app-example
 .env.production
 *.env
 config_keys.js
+
+node_modules
+.env
+.env.local
+.expo
+dist
+build
+android
+ios
+*.keystore
+google-services.json

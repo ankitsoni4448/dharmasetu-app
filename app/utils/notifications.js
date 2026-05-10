@@ -15,11 +15,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // We import expo-notifications lazily to avoid crash if not installed
+import Constants from 'expo-constants';
+
 let Notifications = null;
-try {
-  Notifications = require('expo-notifications');
-} catch {
-  console.log('[Notifications] expo-notifications not installed. Run: npx expo install expo-notifications');
+
+if (Constants.appOwnership !== 'expo') {
+  try {
+    Notifications = require('expo-notifications');
+  } catch {
+    console.log('[Notifications] expo-notifications not installed.');
+  }
 }
 
 const PREF_KEY = 'ds_notification_prefs';

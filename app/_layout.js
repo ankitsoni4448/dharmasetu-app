@@ -8,6 +8,7 @@
 //  3. Spiritual streak touched on each app open
 //  4. Offline action queue flushed on startup
 // ════════════════════════════════════════════════════════════════
+import Constants from 'expo-constants';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack }            from 'expo-router';
 import { fetchAndCacheConfig } from '../app_config';
@@ -29,11 +30,14 @@ const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://dharmasetu-backe
 
 export default function RootLayout() {
   useEffect(() => {
+    const isExpoGo = Constants.appOwnership === 'expo';
     // ── Sync config from backend (non-blocking) ──────────────────
     fetchAndCacheConfig().catch(() => {});
 
     // ── P4: Initialize notifications handler ─────────────────────
-    try { configureNotificationHandler(); } catch {}
+    if (!isExpoGo) {
+  try { configureNotificationHandler(); } catch {}
+}
 
     // ── P4: Start analytics periodic flush ───────────────────────
     startPeriodicFlush();
@@ -45,16 +49,23 @@ export default function RootLayout() {
         // Touch spiritual streak (once per day)
         await touchStreak();
 
-        // Schedule notifications if permission already granted
-        const hasPerm = await hasNotificationPermission();
-        if (hasPerm) await scheduleAllNotifications();
+        const user = await safeGet(KEYS.USER);
 
-        // Register push token with backend
-        const token = await getExpoPushToken();
-        const user  = await safeGet(KEYS.USER);
-        if (token && user?.phone) {
-          await registerPushToken(user.phone, token);
-        }
+        // Schedule notifications if permission
+        if (!isExpoGo) {
+  const hasPerm = await hasNotificationPermission();
+
+  if (hasPerm) {
+    await scheduleAllNotifications();
+  }
+
+  const token = await getExpoPushToken();
+
+  if (token && user?.phone) {
+    await registerPushToken(user.phone, token);
+  }
+}
+        
 
         // Flush any queued offline actions
         const flushed = await flushOfflineQueue();
