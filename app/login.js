@@ -9,7 +9,7 @@
 //  7. verifyAndSave wrapped in try/finally — loading always cleared
 
 import { signInWithPhoneNumber } from "firebase/auth";
-import { app, auth } from "./utils/firebase";
+import { app, auth, RecaptchaVerifier } from "./utils/firebase";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerUserToBackend, getUserFromBackend } from './register_backend';
 import { router } from 'expo-router';
@@ -149,6 +149,9 @@ export default function LoginScreen() {
   // FIX: isSendingRef — hard lock to prevent multiple simultaneous OTP requests
   const isSendingRef = useRef(false);
 
+  // FIX: recaptchaVerifierRef — holds RecaptchaVerifier instance for phone auth
+  const recaptchaVerifierRef = useRef(null);
+
   const [confirmation, setConfirmation] = useState(null);
   const insets = useSafeAreaInsets();
   const [ui, setUi] = useState('hi');
@@ -179,6 +182,13 @@ export default function LoginScreen() {
   const t = L[ui];
 
   useEffect(() => { checkSession(); }, []);
+
+  // FIX: Initialize RecaptchaVerifier on component mount
+  useEffect(() => {
+    if (!recaptchaVerifierRef.current) {
+      recaptchaVerifierRef.current = new RecaptchaVerifier();
+    }
+  }, []);
 
   // FIX: clear resend timer on unmount
   useEffect(() => {
@@ -264,7 +274,7 @@ try {
     return;
   }
 
-  const result = await signInWithPhoneNumber(auth, fullPhone);
+  const result = await signInWithPhoneNumber(auth, fullPhone, recaptchaVerifierRef.current);
       if (isMountedRef.current) {
         setConfirmation(result);
         setStep(5);
