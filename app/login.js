@@ -9,7 +9,8 @@
 //  7. verifyAndSave wrapped in try/finally — loading always cleared
 
 import { signInWithPhoneNumber } from "firebase/auth";
-import { app, auth, RecaptchaVerifier } from "./utils/firebase";
+import { app, auth, firebaseConfig } from "./utils/firebase";
+import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerUserToBackend, getUserFromBackend } from './register_backend';
 import { router } from 'expo-router';
@@ -182,13 +183,6 @@ export default function LoginScreen() {
   const t = L[ui];
 
   useEffect(() => { checkSession(); }, []);
-
-  // FIX: Initialize RecaptchaVerifier on component mount
-  useEffect(() => {
-    if (!recaptchaVerifierRef.current) {
-      recaptchaVerifierRef.current = new RecaptchaVerifier();
-    }
-  }, []);
 
   // FIX: clear resend timer on unmount
   useEffect(() => {
@@ -420,9 +414,8 @@ try {
 
   return(
     <View style={[s.root,{paddingTop:insets.top}]}>
-      {/* FirebaseRecaptchaVerifierModal MUST stay in the tree at all times.
-          - androidHardwareAccelerationDisabled prevents WebView GPU crash on Android
-          - attemptInvisibleVerification=false is more stable on physical devices */}
+      {/* FirebaseRecaptchaVerifierModal — stays mounted for entire component lifecycle */}
+      <FirebaseRecaptchaVerifierModal ref={recaptchaVerifierRef} firebaseConfig={firebaseConfig} />
 
       {/* Loading overlay — replaces early return so verifier stays mounted */}
       {step === -1 && (
