@@ -9,8 +9,8 @@
 //  7. verifyAndSave wrapped in try/finally — loading always cleared
 
 import { signInWithPhoneNumber } from "firebase/auth";
-import { app, auth, firebaseConfig } from "./utils/firebase";
 import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
+import { app, auth, firebaseConfig } from "./utils/firebase";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerUserToBackend, getUserFromBackend } from './register_backend';
 import { router } from 'expo-router';
@@ -140,7 +140,7 @@ const OTP_COOLDOWN_SEC = 60;
 // ════════════════════════════════════════════════════════
 export default function LoginScreen() {
   
-
+  const recaptchaVerifier = useRef(null);
   // FIX: isMountedRef prevents setState after unmount
   const isMountedRef = useRef(true);
   useEffect(() => {
@@ -151,7 +151,6 @@ export default function LoginScreen() {
   const isSendingRef = useRef(false);
 
   // FIX: recaptchaVerifierRef — holds RecaptchaVerifier instance for phone auth
-  const recaptchaVerifierRef = useRef(null);
 
   const [confirmation, setConfirmation] = useState(null);
   const insets = useSafeAreaInsets();
@@ -268,7 +267,11 @@ try {
     return;
   }
 
-  const result = await signInWithPhoneNumber(auth, fullPhone, recaptchaVerifierRef.current);
+  const result = await signInWithPhoneNumber(
+  auth,
+  fullPhone,
+  recaptchaVerifier.current
+);
       if (isMountedRef.current) {
         setConfirmation(result);
         setStep(5);
@@ -415,7 +418,10 @@ try {
   return(
     <View style={[s.root,{paddingTop:insets.top}]}>
       {/* FirebaseRecaptchaVerifierModal — stays mounted for entire component lifecycle */}
-      <FirebaseRecaptchaVerifierModal ref={recaptchaVerifierRef} firebaseConfig={firebaseConfig} />
+       <FirebaseRecaptchaVerifierModal
+  ref={recaptchaVerifier}
+  firebaseConfig={firebaseConfig}
+/>
 
       {/* Loading overlay — replaces early return so verifier stays mounted */}
       {step === -1 && (
