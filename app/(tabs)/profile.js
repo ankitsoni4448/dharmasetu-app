@@ -23,8 +23,7 @@ import {
   safeGet, safeSet, safeGetInt, safeGetString,
   safeSetString, clearUserSession, KEYS,
 } from '../utils/storage';
-
-const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://dharmasetu-backend-2c65.onrender.com';
+import { getBackendUrl, BACKEND_CONFIG } from '../../utils/backend-config';
 
 // ── BADGE SYSTEM ─────────────────────────────────────────────────
 const BADGES = [
@@ -111,7 +110,7 @@ export default function ProfileScreen() {
       await safeSet(KEYS.USER, updated);
       await safeSetString(KEYS.USER_LANGUAGE, editLang);
       // Sync to backend (non-blocking)
-      fetch(`${BACKEND_URL}/users/update`, {
+      fetch(getBackendUrl(BACKEND_CONFIG.ENDPOINTS.USERS_UPDATE), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -170,7 +169,7 @@ export default function ProfileScreen() {
             setLoading(true);
             try {
               // Non-blocking backend delete
-              fetch(`${BACKEND_URL}/users/delete`, {
+              fetch(getBackendUrl(BACKEND_CONFIG.ENDPOINTS.USERS_DELETE), {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ phone: user?.phone || '' }),

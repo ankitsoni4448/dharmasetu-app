@@ -32,9 +32,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Animated, Modal, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
-
-// Backend URL — must match your Render URL
-const BACKEND_URL = 'https://dharmasetu-backend-2c65.onrender.com';
+import { BACKEND_CONFIG, backendFetch } from '../utils/backend-config';
 
 // Default feature flags — used if backend is offline
 const DEFAULT_FLAGS = {
@@ -90,7 +88,11 @@ export function usePremiumCheck() {
         if (parsed && Object.keys(parsed).length > 0) setFeatureFlags(parsed);
       }
       // Fetch fresh from backend
-      const res = await fetch(`${BACKEND_URL}/config`, { signal: AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined });
+      const res = await backendFetch(BACKEND_CONFIG.ENDPOINTS.CONFIG, {
+        timeout: BACKEND_CONFIG.TIMEOUT,
+        retries: 1,
+        retryDelay: 2000,
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.config?.featureFlags) {

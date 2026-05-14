@@ -33,8 +33,9 @@ import {
 } from '../hinduCalendar';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getBackendUrl, BACKEND_CONFIG } from '../../utils/backend-config';
 
-const API_URL = 'https://dharmasetu-backend-2c65.onrender.com/api/panchang/today';
+const API_URL = getBackendUrl(BACKEND_CONFIG.ENDPOINTS.PANCHANG_TODAY);
 
 // ── DAILY SHLOKS (30 hardcoded) ──────────────────────────────────
 const DAILY_SHLOKS = [
@@ -806,7 +807,7 @@ export default function HomeScreen() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      const res = await fetch('https://dharmasetu-backend-2c65.onrender.com/api/dharmic-insight', {
+      const res = await fetch(getBackendUrl(BACKEND_CONFIG.ENDPOINTS.DHARMIC_INSIGHT), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ moodHistory, panchang: parsedPanchang }),
