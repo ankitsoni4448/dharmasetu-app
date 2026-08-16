@@ -11,11 +11,11 @@ import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
-import { safeGet, safeSet, safeGetString, safeSetString, clearUserSession, KEYS } from './utils/storage';
+import { safeGet, safeSet, safeGetString, safeSetString, clearLoginSession, KEYS } from '../utils/storage';
+import { supabase } from '../utils/supabase';
 
 const APP_VERSION = Constants.expoConfig?.version || '1.0.0';
-const PRIVACY_URL = 'https://dharmasetu-backend-2c65.onrender.com/privacy';
-const TERMS_URL   = 'https://dharmasetu-backend-2c65.onrender.com/terms';
+
 
 // ── SETTING ROW ─────────────────────────────────────────────────
 function SettingRow({ icon, label, sub, onPress, right, danger = false }) {
@@ -104,7 +104,13 @@ export default function SettingsScreen() {
           text: isH ? 'लॉगआउट' : 'Logout', style: 'destructive',
           onPress: async () => {
             setLoading(true);
-            await clearUserSession();
+            const { error } = await supabase.auth.signOut();
+            if (error) {
+              if (isMounted.current) setLoading(false);
+              Alert.alert('Error', isH ? 'लॉगआउट नहीं हो सका। फिर कोशिश करें।' : 'Could not log out. Please try again.');
+              return;
+            }
+            await clearLoginSession();
             router.replace('/login');
           },
         },
@@ -114,20 +120,10 @@ export default function SettingsScreen() {
 
   const handleDelete = () => {
     Alert.alert(
-      isH ? '⚠️ खाता हटाएं' : '⚠️ Delete Account',
+      isH ? 'खाता हटाना' : 'Delete Account',
       isH
-        ? 'सारा डेटा हमेशा के लिए हट जाएगा। निश्चित हैं?'
-        : 'All data will be permanently deleted. Are you sure?',
-      [
-        { text: isH ? 'रद्द' : 'Cancel', style: 'cancel' },
-        {
-          text: isH ? 'हटाएं' : 'Delete', style: 'destructive',
-          onPress: async () => {
-            await clearUserSession();
-            router.replace('/login');
-          },
-        },
-      ]
+        ? 'सुरक्षित स्थायी खाता हटाने की सुविधा अगले नियंत्रित चरण में उपलब्ध होगी।'
+        : 'Secure permanent account deletion will be available in a later controlled phase.'
     );
   };
 
@@ -208,14 +204,21 @@ export default function SettingsScreen() {
             icon="🛡️"
             label={isH ? 'गोपनीयता नीति' : 'Privacy Policy'}
             sub={isH ? 'आपका डेटा कैसे सुरक्षित है' : 'How your data is protected'}
-            onPress={() => openURL(PRIVACY_URL)}
+            onPress={() => router.push('/privacy_policy')}
           />
           <Divider />
           <SettingRow
             icon="📋"
             label={isH ? 'उपयोग की शर्तें' : 'Terms of Service'}
             sub={isH ? 'App उपयोग की शर्तें' : 'Terms and conditions of use'}
-            onPress={() => openURL(TERMS_URL)}
+            onPress={() => router.push('/terms')}
+          />
+          <Divider />
+          <SettingRow
+            icon="ℹ️"
+            label={isH ? 'DharmaSetu के बारे में' : 'About DharmaSetu'}
+            sub={isH ? 'हमारा मिशन और टीम' : 'Our mission and team'}
+            onPress={() => router.push('/about')}
           />
           <Divider />
           <SettingRow

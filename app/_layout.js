@@ -13,20 +13,18 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack }            from 'expo-router';
 import { fetchAndCacheConfig } from '../app_config';
 import { useEffect }        from 'react';
-import ErrorBoundary        from './components/ErrorBoundary';
-import { safeGet, KEYS }   from './utils/storage';
+import ErrorBoundary        from '../components/app/ErrorBoundary';
+import { safeGet, KEYS }   from '../utils/storage';
 import {
   configureNotificationHandler,
   scheduleAllNotifications,
   getExpoPushToken,
   hasNotificationPermission,
-} from './utils/notifications';
-import { touchStreak }      from './utils/journey';
-import { flushOfflineQueue, registerPushToken } from './utils/futureScale';
-import { startPeriodicFlush, track, EVENTS } from './utils/analytics';
+} from '../utils/notifications';
+import { touchStreak }      from '../utils/journey';
+import { flushOfflineQueue, registerPushToken } from '../utils/futureScale';
+import { startPeriodicFlush, track, EVENTS } from '../utils/analytics';
 
-
-const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://dharmasetu-backend-2c65.onrender.com';
 
 export default function RootLayout() {
   useEffect(() => {
@@ -89,6 +87,12 @@ export default function RootLayout() {
           <Stack.Screen name="dharmic_library" />
           <Stack.Screen name="katha_vault" />
           <Stack.Screen name="kundli" />
+          <Stack.Screen name="kundli_input" />
+          <Stack.Screen name="kundli_result" />
+          <Stack.Screen name="katha_pdf" />
+          <Stack.Screen name="privacy_policy" />
+          <Stack.Screen name="terms" />
+          <Stack.Screen name="about" />
           <Stack.Screen name="modal" />
         </Stack>
       </SafeAreaProvider>

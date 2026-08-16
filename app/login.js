@@ -1,18 +1,16 @@
-// DharmaSetu — Login — FIXED v6
+// DharmaSetu — Login — Supabase phone OTP
 // Fixes applied:
 //  1. await verifyAndSave() — was missing await, caused race condition
 //  2. OTP resend with 60-sec cooldown timer
 //  3. OTP send/verify loading guards — prevents multiple parallel requests
-//  4. isSendingRef lock — stops duplicate Firebase OTP requests
-//  5. RecaptchaVerifier — attempt-stable, fallback error handling
+//  4. isSendingRef lock — stops duplicate OTP requests
+//  5. Supabase phone OTP authentication
 //  6. checkSession guards against re-render loop via isMountedRef
 //  7. verifyAndSave wrapped in try/finally — loading always cleared
 
-import { signInWithPhoneNumber } from "firebase/auth";
-import { FirebaseRecaptchaVerifierModal } from "expo-firebase-recaptcha";
-import { app, auth, firebaseConfig } from "./utils/firebase";
+import { supabase } from '../utils/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { registerUserToBackend, getUserFromBackend } from './register_backend';
+import { registerUserToBackend, getUserFromBackend } from '../utils/register_backend';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
@@ -110,7 +108,7 @@ const L = {
     enter:'DharmaSetu में प्रवेश करें 🙏',back:'← वापस',change:'← नंबर बदलें',
     req:'यह जानकारी जरूरी है।',reqTime:'जन्म का समय चुनें या दर्ज करें।',
     wrongOTP:'गलत OTP। दोबारा कोशिश करें।',
-    otpTitle:'OTP भेजा गया',otpBody:'Testing mode — OTP terminal में देखें',
+    otpTitle:'OTP भेजा गया',otpBody:'अपने मोबाइल पर आया 6 अंकों का OTP दर्ज करें।',
     resend:'OTP दोबारा भेजें',resendIn:'OTP दोबारा भेजें (',resendSec:' सेकंड में)',
     of:'में से',
   },
@@ -128,7 +126,7 @@ const L = {
     enter:'Enter DharmaSetu 🙏',back:'← Back',change:'← Change number',
     req:'This field is required.',reqTime:'Please select or enter birth time.',
     wrongOTP:'Wrong OTP. Please try again.',
-    otpTitle:'OTP Sent',otpBody:'Testing mode — check terminal for OTP',
+    otpTitle:'OTP Sent',otpBody:'Enter the 6-digit OTP sent to your mobile.',
     resend:'Resend OTP',resendIn:'Resend OTP in (',resendSec:'s)',
     of:'of',
   },
@@ -140,7 +138,6 @@ const OTP_COOLDOWN_SEC = 60;
 // ════════════════════════════════════════════════════════
 export default function LoginScreen() {
   
-  const recaptchaVerifier = useRef(null);
   // FIX: isMountedRef prevents setState after unmount
   const isMountedRef = useRef(true);
   useEffect(() => {
@@ -150,9 +147,7 @@ export default function LoginScreen() {
   // FIX: isSendingRef — hard lock to prevent multiple simultaneous OTP requests
   const isSendingRef = useRef(false);
 
-  // FIX: recaptchaVerifierRef — holds RecaptchaVerifier instance for phone auth
-
-  const [confirmation, setConfirmation] = useState(null);
+  const pendingPhoneRef = useRef('');
   const insets = useSafeAreaInsets();
   const [ui, setUi] = useState('hi');
   const [step, setStep] = useState(-1);
@@ -201,6 +196,42 @@ export default function LoginScreen() {
 
   const checkSession = async () => {
     try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!sessionData.session) {
+        const raw = await AsyncStorage.getItem('dharmasetu_user');
+        if (raw) {
+          try {
+            const cachedUser = JSON.parse(raw);
+            if (cachedUser?.name && cachedUser?.phone) {
+              if (isMountedRef.current) {
+                setPhone('');
+                setStep(4);
+              }
+              return;
+            }
+          } catch {
+            await AsyncStorage.removeItem('dharmasetu_user');
+          }
+        }
+        if (isMountedRef.current) setStep(0);
+        return;
+      }
+
+      const { data: authData, error: userError } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      const authPhone = authData.user?.phone || sessionData.session.user?.phone || '';
+      const localPhone = authPhone.startsWith('+91') ? authPhone.slice(3) : authPhone;
+
+      if (localPhone) {
+        const backendUser = await getUserFromBackend(localPhone);
+        if (backendUser) {
+          await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(backendUser));
+          if (isMountedRef.current) router.replace('/(tabs)');
+          return;
+        }
+      }
+
       const raw = await AsyncStorage.getItem('dharmasetu_user');
       if(raw) {
         let u;
@@ -210,12 +241,14 @@ try {
   await AsyncStorage.removeItem('dharmasetu_user');
   return;
 }
-        if(u?.name && u?.rashi && u?.phone) {
+        if(u?.name && u?.rashi && u?.phone && (!localPhone || u.phone === localPhone)) {
           if (isMountedRef.current) router.replace('/(tabs)');
           return;
         }
       }
-    } catch {}
+    } catch (err) {
+      console.log('[Login] Session restore error:', err.message);
+    }
     if (isMountedRef.current) setStep(0);
   };
 
@@ -246,34 +279,22 @@ try {
     }, 1000);
   };
 
-  // FIX: sendOTP — guarded by isSendingRef + loading state + RecaptchaVerifier null check
+  // Send OTP through Supabase Auth, guarded against duplicate requests.
   const sendOTP = async (fullPhone) => {
     // Guard: prevent multiple simultaneous requests
     if (isSendingRef.current || loading) return;
-    if (!Device.isDevice) {
-  Alert.alert("Error", "OTP works only on real device");
-  return;
-}
+    if (!/^\+91[6-9]\d{9}$/.test(fullPhone)) {
+      Alert.alert('Error', 'Enter a valid 10-digit Indian mobile number.');
+      return;
+    }
     
     isSendingRef.current = true;
     if (isMountedRef.current) setLoading(true);
     try {
-      // Expo Go cannot run Firebase OTP properly
-  if (Constants.appOwnership === 'expo') {
-    Alert.alert(
-      'Development Build Required',
-      'OTP login works only in Development APK, not Expo Go.'
-    );
-    return;
-  }
-
-  const result = await signInWithPhoneNumber(
-  auth,
-  fullPhone,
-  recaptchaVerifier.current
-);
+      const { error } = await supabase.auth.signInWithOtp({ phone: fullPhone });
+      if (error) throw error;
       if (isMountedRef.current) {
-        setConfirmation(result);
+        pendingPhoneRef.current = fullPhone;
         setStep(5);
         setOtp('');
         startResendTimer();
@@ -281,10 +302,13 @@ try {
       }
     } catch (err) {
       console.log('[Login] sendOTP error:', err.code, err.message);
-      const msg = err.code === 'auth/invalid-phone-number'
+      const detail = `${err.code || ''} ${err.message || ''}`.toLowerCase();
+      const msg = detail.includes('phone') && detail.includes('invalid')
         ? 'Invalid phone number. Check and try again.'
-        : err.code === 'auth/too-many-requests'
+        : detail.includes('rate') || detail.includes('too many')
         ? 'Too many attempts. Please wait a few minutes.'
+        : detail.includes('provider') || detail.includes('sms')
+        ? 'SMS delivery is not configured yet. Please try again after the provider is enabled.'
         : 'Failed to send OTP. Check your connection and try again.';
       if (isMountedRef.current) Alert.alert('Error', msg);
     } finally {
@@ -296,7 +320,6 @@ try {
   // FIX: resendOTP — only callable when cooldown is 0
   const resendOTP = async () => {
     if (resendCooldown > 0 || loading) return;
-    setConfirmation(null);
     const formattedPhone = '+91' + phone.trim();
     await sendOTP(formattedPhone);
   };
@@ -304,20 +327,29 @@ try {
   // FIX: verifyOTP — properly awaits verifyAndSave, loading guard, error handling
   const verifyOTP = async () => {
     if (loading) return;
-    if (!confirmation) return;
+    const formattedPhone = pendingPhoneRef.current;
+    if (!formattedPhone) return;
     if (otp.length < 6) {
       Alert.alert('Error', 'Please enter the complete 6-digit OTP.');
       return;
     }
     if (isMountedRef.current) setLoading(true);
     try {
-      await confirmation.confirm(otp);
-      // FIX: was missing await — caused race condition where navigation
-      // could fire before user data was saved to AsyncStorage
-      await verifyAndSave();
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone: formattedPhone,
+        token: otp,
+        type: 'sms',
+      });
+      if (error) throw error;
+      const authUserId = data.user?.id || data.session?.user?.id;
+      if (!authUserId || (!data.user && !data.session)) {
+        throw new Error('Supabase did not return an authenticated user session.');
+      }
+      await verifyAndSave(authUserId);
     } catch (err) {
       console.log('[Login] verifyOTP error:', err.code, err.message);
-      const msg = err.code === 'auth/invalid-verification-code'
+      const detail = `${err.code || ''} ${err.message || ''}`.toLowerCase();
+      const msg = detail.includes('invalid') || detail.includes('expired')
         ? t.wrongOTP
         : 'OTP verification failed. Please try again.';
       if (isMountedRef.current) {
@@ -329,7 +361,7 @@ try {
   };
 
   // FIX: verifyAndSave — wrapped in try/finally so loading is always cleared
-  const verifyAndSave = async () => {
+  const verifyAndSave = async (authUserId) => {
     try {
       // Get push token
       let pushToken = '';
@@ -367,17 +399,18 @@ try {
         role: 'jigyasu', pts: 0, streak: 0,
         createdAt: new Date().toISOString(),
         pushToken,
+        authUserId,
       };
 
       // Returning user restore — check backend first
       const backendUser = await getUserFromBackend(phone);
       if (backendUser) {
         backendUser.pushToken = pushToken;
-        // Update backend with latest token + UID (non-blocking)
+        // Update backend with the canonical Supabase Auth user ID.
         try {
           await registerUserToBackend({
             ...backendUser,
-            firebaseUid: auth.currentUser?.uid || '',
+            authUserId,
           });
         } catch (e) {
           console.log('[Login] Backend register failed:', e);
@@ -396,7 +429,7 @@ try {
       // Non-blocking backend registration
       registerUserToBackend({
         ...userData,
-        firebaseUid: auth.currentUser?.uid || '',
+        authUserId,
       }).catch(e => console.log('[Login] Backend register error:', e));
 
       if (isMountedRef.current) router.replace('/(tabs)');
@@ -409,21 +442,11 @@ try {
     }
   };
 
-  // NOTE: do NOT early-return here — FirebaseRecaptchaVerifierModal must
-  // stay mounted from first render so recaptchaVerifier.current is never null
-  // when sendOTP is eventually called. Show a loading overlay instead.
-
   const pct = Math.round((Math.min(step,5)/5)*100);
 
   return(
     <View style={[s.root,{paddingTop:insets.top}]}>
-      {/* FirebaseRecaptchaVerifierModal — stays mounted for entire component lifecycle */}
-       <FirebaseRecaptchaVerifierModal
-  ref={recaptchaVerifier}
-  firebaseConfig={firebaseConfig}
-/>
-
-      {/* Loading overlay — replaces early return so verifier stays mounted */}
+      {/* Loading overlay — shown during component initialization */}
       {step === -1 && (
         <View style={s.loadingOverlay}>
           <Text style={{fontSize:52}}>🕉</Text>
@@ -639,7 +662,7 @@ try {
                     if (loading) return;
                     setStep(4);
                     setOtp('');
-                    setConfirmation(null);
+                    pendingPhoneRef.current = '';
                     if (resendTimerRef.current) clearInterval(resendTimerRef.current);
                     setResendCooldown(0);
                   }}

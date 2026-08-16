@@ -21,9 +21,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import {
   safeGet, safeSet, safeGetInt, safeGetString,
-  safeSetString, clearUserSession, KEYS,
-} from '../utils/storage';
+  safeSetString, clearLoginSession, KEYS,
+} from '../../utils/storage';
 import { getBackendUrl, BACKEND_CONFIG } from '../../utils/backend-config';
+import { supabase } from '../../utils/supabase';
 
 // ── BADGE SYSTEM ─────────────────────────────────────────────────
 const BADGES = [
@@ -145,7 +146,13 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             setLoading(true);
-            await clearUserSession();
+            const { error } = await supabase.auth.signOut();
+            if (error) {
+              if (isMounted.current) setLoading(false);
+              Alert.alert('Error', isH ? 'लॉगआउट नहीं हो सका। फिर कोशिश करें।' : 'Could not log out. Please try again.');
+              return;
+            }
+            await clearLoginSession();
             router.replace('/login');
           },
         },
@@ -156,30 +163,10 @@ export default function ProfileScreen() {
   // ── DELETE ACCOUNT ────────────────────────────────────────────
   const handleDelete = () => {
     Alert.alert(
-      isH ? '⚠️ खाता हटाएं' : '⚠️ Delete Account',
+      isH ? 'खाता हटाना' : 'Delete Account',
       isH
-        ? 'आपका सारा डेटा हमेशा के लिए हट जाएगा। क्या आप निश्चित हैं?'
-        : 'All your data will be permanently deleted. Are you sure?',
-      [
-        { text: isH ? 'रद्द करें' : 'Cancel', style: 'cancel' },
-        {
-          text: isH ? 'हटाएं' : 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              // Non-blocking backend delete
-              fetch(getBackendUrl(BACKEND_CONFIG.ENDPOINTS.USERS_DELETE), {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ phone: user?.phone || '' }),
-              }).catch(() => {});
-            } catch {}
-            await clearUserSession();
-            router.replace('/login');
-          },
-        },
-      ]
+        ? 'सुरक्षित स्थायी खाता हटाने की सुविधा अगले नियंत्रित चरण में उपलब्ध होगी।'
+        : 'Secure permanent account deletion will be available in a later controlled phase.'
     );
   };
 
@@ -225,7 +212,7 @@ export default function ProfileScreen() {
             </View>
             <View style={[s.planBadge, { backgroundColor: plan.bg, borderColor: plan.color }]}>
               <Text style={[s.planBadgeTxt, { color: plan.color }]}>
-                {plan.label} {user.plan && user.plan !== 'free' ? '✓' : ''}
+                {user.plan && user.plan !== 'free' ? `${plan.label} ✓` : plan.label}
               </Text>
             </View>
             <Text style={s.userName}>{user.name}</Text>
@@ -252,7 +239,7 @@ export default function ProfileScreen() {
           <View style={s.card}>
             <Text style={s.cardTitle}>🔯 {isH ? 'कुंडली विवरण' : 'Kundli Details'}</Text>
             {[
-              { l: isH ? 'राशि' : 'Rashi',         v: `${user.rashi} (${user.rashiEng || ''})` },
+              { l: isH ? 'राशि' : 'Rashi',         v: user.rashi ? `${user.rashi} (${user.rashiEng || ''})` : null },
               { l: isH ? 'नक्षत्र' : 'Nakshatra',   v: user.nakshatra },
               { l: isH ? 'लग्न' : 'Lagna',          v: user.lagna },
               { l: isH ? 'ग्रह' : 'Planet',         v: user.planet },

@@ -196,6 +196,25 @@ export async function clearUserSession() {
   }
 }
 
+/**
+ * Clears only local authentication state for logout.
+ * Profile history, Kundli-related data, favorites, points, and backend records remain intact.
+ */
+export async function clearLoginSession() {
+  const authKeys = [KEYS.AUTH_TOKEN, KEYS.AUTH_TOKEN_EXPIRY];
+  try {
+    await AsyncStorage.multiRemove(authKeys);
+    console.log('[Storage] Login session cleared');
+    return true;
+  } catch (e) {
+    console.warn('[Storage] clearLoginSession partial failure:', e.message);
+    for (const key of authKeys) {
+      await AsyncStorage.removeItem(key).catch(() => {});
+    }
+    return true;
+  }
+}
+
 // ── JWT TOKEN HELPERS ────────────────────────────────────────────
 const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 

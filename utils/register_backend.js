@@ -44,7 +44,7 @@ export async function registerUserToBackend(userData) {
       language:    userData.language   || 'hindi',
       birthCity:   userData.birthCity  || userData.birth_city || '',
       dob:         userData.dob        || '',
-      firebaseUid: userData.firebaseUid || userData.firebase_uid || '',
+      authUserId:  userData.authUserId || userData.auth_user_id || '',
       pushToken:   userData.pushToken  || '',
     };
     const res = await fetch(`${BACKEND_URL}/users/register`, {
@@ -156,38 +156,6 @@ export async function getUserFromBackend(phone) {
     return data.user;
   } catch (err) {
     console.log("Fetch user error:", err);
-    return null;
-  }
-}
-
-/**
- * Exchange Firebase UID + phone for a backend JWT token.
- * Call this after successful Firebase OTP verification in login.js.
- * The JWT is stored via saveAuthToken() and used for /users/me validation.
- *
- * Non-blocking — login still works if backend is offline.
- *
- * @param {string} phone       - User's phone number
- * @param {string} firebaseUid - Firebase UID from auth result
- * @returns {string|null}       - JWT token or null on failure
- */
-export async function requestAppToken(phone, firebaseUid) {
-  if (!phone || !firebaseUid) return null;
-  try {
-    const res = await fetch(`${BACKEND_URL}/auth/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, firebaseUid }),
-    });
-    if (!res.ok) { console.log('[Auth] Token request failed:', res.status); return null; }
-    const data = await res.json();
-    if (data.success && data.token) {
-      console.log('[Auth] ✅ JWT token received from backend');
-      return data.token;
-    }
-    return null;
-  } catch (err) {
-    console.log('[Auth] Token request skipped (offline):', err.message);
     return null;
   }
 }
