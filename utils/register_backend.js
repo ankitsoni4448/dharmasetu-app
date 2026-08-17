@@ -25,7 +25,16 @@
 //   submitFeedback(q, a, rating, reason, user?.phone || '');
 // ════════════════════════════════════════════════════════════════
 
+import { supabase } from './supabase';
+
 const BACKEND_URL = 'https://dharmasetu-backend-2c65.onrender.com';
+
+async function authenticatedHeaders() {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error('Authentication required');
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+}
 
 /**
  * Call this after user completes login/signup in login.js
@@ -38,9 +47,9 @@ export async function registerUserToBackend(userData) {
       phone:       userData.phone      || '',
       name:        userData.name       || 'DharmaSetu User',
       email:       userData.email      || '',
-      rashi:       userData.rashi      || 'Mesh',
-      nakshatra:   userData.nakshatra  || 'Ashwini',
-      deity:       userData.deity      || 'Hanuman',
+      rashi:       userData.rashi      || '',
+      nakshatra:   userData.nakshatra  || '',
+      deity:       userData.deity      || '',
       language:    userData.language   || 'hindi',
       birthCity:   userData.birthCity  || userData.birth_city || '',
       dob:         userData.dob        || '',
@@ -49,7 +58,7 @@ export async function registerUserToBackend(userData) {
     };
     const res = await fetch(`${BACKEND_URL}/users/register`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await authenticatedHeaders(),
       body: JSON.stringify(body),
     });
     const data = await res.json();
@@ -139,7 +148,9 @@ export async function submitAIFeedback(question, ai_answer, rating, reason, phon
 }
 export async function getUserFromBackend(phone) {
   try {
-    const res = await fetch(`${BACKEND_URL}/user/get?phone=${phone}`);
+    const res = await fetch(`${BACKEND_URL}/user/get?phone=${encodeURIComponent(phone)}`, {
+      headers: await authenticatedHeaders(),
+    });
 
     if (!res.ok) {
       console.log("Backend response not OK:", res.status);

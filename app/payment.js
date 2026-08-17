@@ -7,10 +7,8 @@
 //  3. isMountedRef — all setState calls guarded against unmount (memory leak fix)
 //  4. loadingRef (useRef lock) — prevents double-tap race condition in handleSubscribe
 //  5. subscribeRazorpay: removed internal setLoading (caller owns it) — no double-loading
-//  6. verifyPayment: removed duplicate Alert (activatePlan already shows success alert)
 //  7. verifyPayment: loading guard added — prevents double confirm taps
 //  8. verifyPayment: pendingOrderId + selPlan cleared from AsyncStorage on success/failure
-//  9. activatePlan: also persists clearance of pendingOrderId from AsyncStorage
 // 10. handleSubscribe: always clears loading in finally block — no stuck spinner
 // 11. useCallback on all async handlers — stable references, no re-creation each render
 // 12. loadData: guarded with isMountedRef before every setState
@@ -24,6 +22,7 @@ import {
   StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { authenticatedFetch, refreshEntitlement } from '../utils/entitlements';
 
 const BACKEND_URL = 'https://dharmasetu-backend-2c65.onrender.com';
 
@@ -117,6 +116,12 @@ try {
 }
         setUser(u);
         setCurrentPlan(u.plan || 'free');
+        try {
+          const plan = await refreshEntitlement();
+          if (isMountedRef.current) setCurrentPlan(plan);
+        } catch (e) {
+          console.log('[Payment] Entitlement refresh failed:', e.message);
+        }
       }
 
       // Load cached plans + donations
@@ -211,12 +216,14 @@ try {
       return null;
     }
 
-    const orderId = `upi_${Date.now()}_${Math.random().toString(36).substring(2,8)}`;
-
-    await logToBackend('/payment/initiate', {
-      type: 'subscription', planId: plan.id,
-      amount: plan.price, method: 'upi', phone: user?.phone || '',
+    const orderResponse = await authenticatedFetch(`${BACKEND_URL}/payment/upi/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ planId: plan.id }),
     });
+    const order = await orderResponse.json();
+    if (!orderResponse.ok || !order.success) throw new Error(order.error || 'Could not create payment order');
+    const orderId = order.orderId;
 
     const upiLink = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=DharmaSetu&am=${plan.price}&cu=INR&tn=${encodeURIComponent('DharmaSetu ' + plan.name)}`;
     try {
@@ -282,23 +289,6 @@ try {
   }, [user?.phone, isH, fetchWithTimeout]);
 
   // ── Activate plan locally ─────────────────────────────────────────
-  const activatePlan = useCallback(async (plan) => {
-    try {
-      const updated = { ...(user || {}), plan: plan.id };
-      await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(updated));
-      await AsyncStorage.setItem('dharmasetu_plan', plan.id);
-      // FIX: clear pending order from storage on activation
-      await AsyncStorage.removeItem(KEY_PENDING_ORDER);
-      await AsyncStorage.removeItem(KEY_PENDING_PLAN);
-      if (isMountedRef.current) {
-        setCurrentPlan(plan.id);
-        setUser(updated);
-      }
-    } catch (e) {
-      console.log('[Payment] activatePlan error:', e.message);
-    }
-  }, [user]);
-
   // ── Handle Subscribe (main entry point) ───────────────────────────
   // FIX: loadingRef prevents double-tap race condition
   const handleSubscribe = useCallback(async (plan) => {
@@ -347,18 +337,27 @@ try {
 
     try {
       // Confirm payment with backend
-      await fetchWithTimeout(`${BACKEND_URL}/payment/confirm`, {
+      const response = await authenticatedFetch(`${BACKEND_URL}/payment/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-  orderId: pendingOrderId,
-}),
-      }, 10000);
+        body: JSON.stringify({ orderId: pendingOrderId }),
+      });
+      const paymentStatus = await response.json();
+      if (!response.ok) throw new Error(paymentStatus.error || 'Verification failed');
 
       // Activate plan locally + clear storage
-      await activatePlan(selPlan);
+      const authoritativePlan = await refreshEntitlement();
+      if (isMountedRef.current) setCurrentPlan(authoritativePlan);
+      if (authoritativePlan !== selPlan.id) {
+        Alert.alert(
+          isH ? 'Payment verification pending' : 'Verification pending',
+          isH
+            ? 'Payment verification pending hai. Confirmation ke baad plan activate hoga.'
+            : 'Payment verification is pending. Your plan will activate after confirmation.',
+        );
+        return;
+      }
 
-      // FIX: single success alert here (activatePlan no longer shows alert)
       Alert.alert(
         '🎉 ' + (isH ? 'सफल' : 'Success'),
         isH
@@ -391,7 +390,7 @@ try {
       loadingRef.current = false;
       if (isMountedRef.current) setLoading(false);
     }
-  }, [pendingOrderId, selPlan, user?.phone, activatePlan, fetchWithTimeout, isH]);
+  }, [pendingOrderId, selPlan, isH]);
 
   // ═══════════════════════════════════════════════════════════════
   // RENDER

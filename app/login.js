@@ -30,7 +30,8 @@ if (Constants.appOwnership !== 'expo') {
 
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: true,
       shouldSetBadge: false,
     }),
@@ -61,27 +62,6 @@ const NAKSHATRA_BY_RASHI = {
   Dhanu:['Mula','Purva Ashadha','Uttara Ashadha (1)'],Makar:['Uttara Ashadha (2,3,4)','Shravana','Dhanishtha (1,2)'],
   Kumbh:['Dhanishtha (3,4)','Shatabhisha','Purva Bhadrapada (1,2,3)'],Meen:['Purva Bhadrapada (4)','Uttara Bhadrapada','Revati'],
 };
-
-function calculateRashi(day, month, year) {
-  const d=parseInt(day,10), m=parseInt(month,10), y=parseInt(year,10);
-  const base = [9,9,10,11,12,1,2,3,4,5,6,7];
-  let idx = (base[(m-1)] + Math.floor(d/15) + (y%12)%3) % 12;
-  return RASHIS[Math.max(0,idx)];
-}
-
-function getLagna(timeSlot, exactTime) {
-  if (exactTime) {
-    const h = parseInt(exactTime.split(':')[0]||'0',10);
-    if(h>=4&&h<6)  return 'Mesh (Aries)';
-    if(h>=6&&h<10) return 'Mithun (Gemini)';
-    if(h>=10&&h<14)return 'Kark (Cancer)';
-    if(h>=14&&h<18)return 'Tula (Libra)';
-    if(h>=18&&h<22)return 'Makar (Capricorn)';
-    return 'Kumbh (Aquarius)';
-  }
-  const m={early_morning:'Mesh (Aries)',morning:'Mithun (Gemini)',afternoon:'Kark (Cancer)',evening:'Tula (Libra)',night:'Makar (Capricorn)',late_night:'Kumbh (Aquarius)'};
-  return m[timeSlot]||'Kark (Cancer)';
-}
 
 const TIME_SLOTS = [
   {id:'early_morning',hi:'ब्रह्म मुहूर्त (4–6 AM)',en:'Brahma Muhurta (4–6 AM)'},
@@ -203,7 +183,7 @@ export default function LoginScreen() {
         if (raw) {
           try {
             const cachedUser = JSON.parse(raw);
-            if (cachedUser?.name && cachedUser?.phone) {
+            if (cachedUser?.name && cachedUser?.phone && cachedUser?.auth_user_id) {
               if (isMountedRef.current) {
                 setPhone('');
                 setStep(4);
@@ -241,7 +221,7 @@ try {
   await AsyncStorage.removeItem('dharmasetu_user');
   return;
 }
-        if(u?.name && u?.rashi && u?.phone && (!localPhone || u.phone === localPhone)) {
+        if(u?.name && u?.phone && u?.auth_user_id === authData.user?.id && (!localPhone || u.phone === localPhone)) {
           if (isMountedRef.current) router.replace('/(tabs)');
           return;
         }
@@ -373,7 +353,7 @@ try {
             const { status } = await Notifications.requestPermissionsAsync();
             finalStatus = status;
           }
-          if (finalStatus === 'granted') {
+          if (finalStatus === 'granted' && process.env.EXPO_PUBLIC_REMOTE_PUSH_ENABLED === 'true') {
             const projectId = Constants?.expoConfig?.extra?.eas?.projectId || Constants?.easConfig?.projectId || null;
             const tokenData = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : {});
             pushToken = tokenData.data;
@@ -382,20 +362,14 @@ try {
       }
 
       // Build userData early so it's available for both new and returning user paths
-      const rashi = calculateRashi(dobDay, dobMonth, dobYear);
-      const naks = NAKSHATRA_BY_RASHI[rashi] || ['Ashwini'];
-      const nakshatra = naks[Math.floor(Math.random() * naks.length)];
-      const lagna = getLagna(timeSlot, timeMode === 'exact' ? exactTime : '');
-      const rd = RASHI_DATA[rashi];
       const userData = {
         name: name.trim(), phone,
         dob: `${dobDay}/${dobMonth}/${dobYear}`,
         dobDay, dobMonth, dobYear,
         timeMode, timeSlot, exactTime,
         birthCity: birthCity.trim(), language: lang,
-        rashi, rashiEng: RASHI_ENG[rashi], nakshatra, lagna,
-        planet: rd.planet, deity: rd.deity, mantra: rd.mantra,
-        luckyColor: rd.color, luckyDay: rd.day, luckyGem: rd.gem,
+        birthTimeAccuracy: timeMode === 'exact' ? 'exact' : 'approximate',
+        kundliStatus: 'pending',
         role: 'jigyasu', pts: 0, streak: 0,
         createdAt: new Date().toISOString(),
         pushToken,
@@ -484,6 +458,11 @@ try {
                 <TextInput style={s.inp} placeholder={t.s1p} placeholderTextColor="rgba(253,246,237,0.3)" value={name} onChangeText={setName} autoFocus/>
                 <TouchableOpacity style={s.btn} onPress={()=>validate()&&setStep(1)} activeOpacity={0.85}>
                   <Text style={s.btnTxt}>{t.next}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.resendBtn} onPress={()=>setStep(4)} activeOpacity={0.8}>
+                  <Text style={s.resendTxt}>
+                    {ui === 'hi' ? 'पहले से खाता है? मोबाइल से लॉग इन करें' : 'Already have an account? Log in with mobile'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             )}

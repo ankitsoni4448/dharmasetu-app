@@ -19,7 +19,9 @@ import * as Speech from 'expo-speech';
 import * as Audio from 'expo-av';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getCurrentPlan, isPaidPlan } from '../../utils/entitlements';
 import { StatusBar } from 'expo-status-bar';
+import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, Animated, Dimensions,
@@ -28,7 +30,7 @@ import {
   Vibration, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { submitFeedback } from '../register_backend';
+import { submitFeedback } from '../../utils/register_backend';
 import { BACKEND_CONFIG, getBackendUrl } from '../../utils/backend-config';
 
 const { width: SW } = Dimensions.get('window');
@@ -346,6 +348,14 @@ export default function DharmaChatScreen() {
 
   // ── PREMIUM CHECK (per-instance cache, offline-aware) ─────────
   const checkPremiumAccess = useCallback(async (phone) => {
+    if (typeof getCurrentPlan === 'function') {
+      try {
+        return isPaidPlan(await getCurrentPlan({ refresh: isOnline }));
+      } catch {
+        return false;
+      }
+    }
+    /* Legacy implementation retained temporarily for UI stability; unreachable. */
     const now = Date.now();
     const cache = premiumCacheRef.current;
 
@@ -405,7 +415,6 @@ export default function DharmaChatScreen() {
       // FIX: update cache with resolved phone + timestamp
       premiumCacheRef.current = { value: isPremium, ts: now, phone: resolvedPhone };
       // FIX: sync AsyncStorage for offline fallback
-      await AsyncStorage.setItem('dharmasetu_plan', isPremium ? 'premium' : 'free');
       return isPremium;
     } catch (e) {
       console.log('[DharmaChat] Premium check error:', e.message);
@@ -701,7 +710,7 @@ if (!phone) {
           : 'This feature is for Premium users. Please upgrade 🙏',
         [
           { text: 'Cancel' },
-          { text: 'Upgrade', onPress: () => console.log('Go to premium screen') },
+          { text: 'Upgrade', onPress: () => router.push('/payment') },
         ]
       );
       return;

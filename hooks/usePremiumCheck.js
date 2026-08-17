@@ -33,6 +33,7 @@ import {
   Animated, Modal, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
 import { BACKEND_CONFIG, backendFetch } from '../utils/backend-config';
+import { getCurrentPlan, isPaidPlan } from '../utils/entitlements';
 
 // Default feature flags — used if backend is offline
 const DEFAULT_FLAGS = {
@@ -68,14 +69,7 @@ export function usePremiumCheck() {
 
   const loadPremiumStatus = async () => {
     try {
-      const raw = await AsyncStorage.getItem('dharmasetu_user');
-      if (raw) {
-        const u = JSON.parse(raw);
-        setIsPremium(u.plan === 'pro' || u.plan === 'basic');
-      }
-      // Also check cached plan
-      const plan = await AsyncStorage.getItem('dharmasetu_plan');
-      if (plan && plan !== 'free') setIsPremium(true);
+      setIsPremium(isPaidPlan(await getCurrentPlan()));
     } catch {}
   };
 
