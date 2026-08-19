@@ -15,11 +15,9 @@
 // 10. isMountedRef: prevents setState after screen unmount (memory leak fix)
 // 11. Error handling: retry button shown on failed AI messages
 // ════════════════════════════════════════════════════════════════
-import * as Speech from 'expo-speech';
-import * as Audio from 'expo-av';
 import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getCurrentPlan, isPaidPlan } from '../../utils/entitlements';
+import { authenticatedFetch, getCurrentPlan, isPaidPlan } from '../../utils/entitlements';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -73,7 +71,7 @@ const Sec = {
 async function callBackendAI(messages, userProfile, mode, phone) {
   const controller = new AbortController();
   // FIX: 25s timeout instead of 45s — gives faster failure feedback
-  const timeout = setTimeout(() => controller.abort(), 25000);
+  const timeout = setTimeout(() => controller.abort(), 45000);
 
   try {
     const moodHistoryRaw = await AsyncStorage.getItem('user_mood_history');
@@ -82,7 +80,7 @@ async function callBackendAI(messages, userProfile, mode, phone) {
     const panchangRaw = await AsyncStorage.getItem('today_panchang');
     const panchang = panchangRaw ? JSON.parse(panchangRaw) : {};
 
-    const res = await fetch(getBackendUrl(BACKEND_CONFIG.ENDPOINTS.AI_DHARMA_CHAT), {
+    const res = await authenticatedFetch(getBackendUrl(BACKEND_CONFIG.ENDPOINTS.AI_DHARMA_CHAT), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -106,8 +104,19 @@ async function callBackendAI(messages, userProfile, mode, phone) {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
+      if (err.error === 'QUESTION_LIMIT_REACHED') {
+        const quotaError = new Error('QUESTION_LIMIT_REACHED');
+        quotaError.limit = err.limit;
+        throw quotaError;
+      }
+      if (res.status === 429 && err.error === 'AI_PROVIDER_RATE_LIMIT') throw new Error('AI_PROVIDER_RATE_LIMIT');
       if (res.status === 429) throw new Error('RATE_LIMIT');
-      throw new Error(err.error || `Server error ${res.status}`);
+      const knownCodes = new Set([
+        'AUTH_REQUIRED', 'PROFILE_NOT_FOUND', 'FEATURE_DISABLED', 'FORBIDDEN',
+        'QUOTA_INFRASTRUCTURE_UNAVAILABLE', 'AI_PROVIDER_CONFIGURATION_ERROR',
+        'AI_PROVIDER_UNAVAILABLE', 'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT', 'SERVER_ERROR',
+      ]);
+      throw new Error(knownCodes.has(err.error) ? err.error : 'SERVER_ERROR');
     }
 
     const data = await res.json();
@@ -117,7 +126,15 @@ async function callBackendAI(messages, userProfile, mode, phone) {
   } catch (e) {
     clearTimeout(timeout);
     if (e.name === 'AbortError') throw new Error('TIMEOUT');
-    throw e;
+    if (e.message === 'Authentication required') throw new Error('AUTH_REQUIRED');
+    if (e instanceof TypeError) throw new Error('NETWORK_ERROR');
+    const safeCodes = new Set([
+      'AUTH_REQUIRED', 'PROFILE_NOT_FOUND', 'FEATURE_DISABLED', 'FORBIDDEN',
+      'QUESTION_LIMIT_REACHED', 'RATE_LIMIT', 'QUOTA_INFRASTRUCTURE_UNAVAILABLE',
+      'AI_PROVIDER_CONFIGURATION_ERROR', 'AI_PROVIDER_UNAVAILABLE',
+      'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT', 'SERVER_ERROR',
+    ]);
+    throw safeCodes.has(e.message) ? e : new Error('SERVER_ERROR');
   }
 }
 
@@ -135,6 +152,32 @@ function parseResp(raw) {
     body = body.replace(/^VERIFIED:\s*true/im, '').trim();
   }
   return { title, body: body.trim(), src, ver };
+}
+
+function renderInlineMarkdown(text, baseStyle) {
+  return String(text).split(/(\*\*[^*]+\*\*|\*[^*\n]+\*)/g).filter(Boolean).map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <Text key={index} style={[baseStyle, { fontWeight: '800' }]}>{part.slice(2, -2)}</Text>;
+    }
+    if (part.startsWith('*') && part.endsWith('*')) {
+      return <Text key={index} style={[baseStyle, { fontStyle: 'italic' }]}>{part.slice(1, -1)}</Text>;
+    }
+    return <Text key={index} style={baseStyle}>{part}</Text>;
+  });
+}
+
+function SafeMarkdown({ text, style }) {
+  const lines = String(text || '').split('\n');
+  return <View>{lines.map((rawLine, index) => {
+    const heading = rawLine.match(/^#{1,6}\s+(.+)$/);
+    const bullet = rawLine.match(/^\s*[-•]\s+(.+)$/);
+    const numbered = rawLine.match(/^\s*(\d+\.)\s+(.+)$/);
+    const content = heading?.[1] || bullet?.[1] || numbered?.[2] || rawLine;
+    const prefix = bullet ? '• ' : numbered ? `${numbered[1]} ` : '';
+    return <Text key={index} style={[style, heading && { fontWeight: '800' }]}>
+      {prefix}{renderInlineMarkdown(content, style)}{index < lines.length - 1 ? '\n' : ''}
+    </Text>;
+  })}</View>;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -554,6 +597,12 @@ export default function DharmaChatScreen() {
 
   // ── ERROR MESSAGE HELPER ─────────────────────────────────────
   const getErrorMsg = (err, lang) => {
+    if (err.message === 'QUESTION_LIMIT_REACHED') {
+      const limit = err.limit || 3;
+      return lang === 'hindi'
+        ? `आज के ${limit} निःशुल्क प्रश्न पूरे हो गए हैं। कल फिर ${limit} प्रश्न मिलेंगे, या अभी Pro में अपग्रेड करें।`
+        : `You've used today's ${limit} free questions. You'll receive ${limit} more tomorrow, or upgrade to Pro now.`;
+    }
     if (err.message === 'RATE_LIMIT') {
       return lang === 'hindi'
         ? 'थोड़ा रुकें। बहुत जल्दी प्रश्न पूछे गए।'
@@ -563,6 +612,44 @@ export default function DharmaChatScreen() {
       return lang === 'hindi'
         ? 'सर्वर धीरे चल रहा है। कृपया दोबारा कोशिश करें।'
         : 'Server is taking too long. Please try again.';
+    }
+    if (err.message === 'AUTH_REQUIRED') {
+      return lang === 'hindi'
+        ? 'आपका सत्र समाप्त हो गया है। कृपया दोबारा लॉग इन करें।'
+        : 'Your session has expired. Please sign in again.';
+    }
+    if (err.message === 'FEATURE_DISABLED') {
+      return lang === 'hindi' ? 'धर्मचैट अभी उपलब्ध नहीं है।' : 'DharmaChat is currently unavailable.';
+    }
+    if (err.message === 'FORBIDDEN') {
+      return lang === 'hindi' ? 'इस सुविधा की अनुमति नहीं है।' : 'You do not have access to this feature.';
+    }
+    if (err.message === 'AI_PROVIDER_UNAVAILABLE') {
+      return lang === 'hindi' ? 'AI सेवा अभी उपलब्ध नहीं है। कृपया थोड़ी देर बाद प्रयास करें।' : 'The AI service is temporarily unavailable. Please try again later.';
+    }
+    if (err.message === 'AI_TIMEOUT') {
+      return lang === 'hindi' ? 'AI सेवा ने समय पर उत्तर नहीं दिया। कृपया दोबारा प्रयास करें।' : 'The AI service timed out. Please try again.';
+    }
+    if (err.message === 'AI_SERVICE_ERROR') {
+      return lang === 'hindi' ? 'सर्वर में अस्थायी समस्या है। कृपया दोबारा प्रयास करें।' : 'The server encountered a temporary problem. Please try again.';
+    }
+    if (err.message === 'PROFILE_NOT_FOUND') {
+      return lang === 'hindi' ? 'आपकी प्रोफ़ाइल नहीं मिली। कृपया दोबारा लॉगिन करें।' : 'Your profile could not be found. Please sign in again.';
+    }
+    if (err.message === 'QUOTA_INFRASTRUCTURE_UNAVAILABLE') {
+      return lang === 'hindi' ? 'प्रश्न सेवा अस्थायी रूप से उपलब्ध नहीं है। कृपया कुछ देर बाद पुनः प्रयास करें।' : 'The question service is temporarily unavailable. Please try again later.';
+    }
+    if (err.message === 'AI_PROVIDER_CONFIGURATION_ERROR') {
+      return lang === 'hindi' ? 'DharmaChat अभी कॉन्फ़िगर नहीं है। कृपया बाद में प्रयास करें।' : 'DharmaChat is not configured yet. Please try again later.';
+    }
+    if (err.message === 'AI_PROVIDER_RATE_LIMIT') {
+      return lang === 'hindi' ? 'AI सेवा अभी व्यस्त है। कृपया कुछ देर बाद प्रयास करें।' : 'The AI service is busy. Please try again shortly.';
+    }
+    if (err.message === 'SERVER_ERROR' || err.message === 'AI_SERVICE_ERROR') {
+      return lang === 'hindi' ? 'सर्वर में अस्थायी समस्या है। कृपया दोबारा प्रयास करें।' : 'The server encountered a temporary problem. Please try again.';
+    }
+    if (err.message === 'NETWORK_ERROR') {
+      return lang === 'hindi' ? 'इंटरनेट कनेक्शन नहीं मिल रहा। कृपया नेटवर्क जाँचकर दोबारा प्रयास करें।' : 'No internet connection. Check your network and try again.';
     }
     return lang === 'hindi'
       ? 'सर्वर से जोड़ नहीं पाए। Internet जांचें।'
@@ -622,7 +709,30 @@ export default function DharmaChatScreen() {
       }
       return true;
     } catch (err) {
-      console.error('[DharmaChat] coreSend error:', err.message);
+      const controlledCodes = new Set([
+        'QUESTION_LIMIT_REACHED', 'AUTH_REQUIRED', 'PROFILE_NOT_FOUND',
+        'FEATURE_DISABLED', 'RATE_LIMIT', 'FORBIDDEN',
+        'QUOTA_INFRASTRUCTURE_UNAVAILABLE', 'AI_PROVIDER_CONFIGURATION_ERROR',
+        'AI_PROVIDER_UNAVAILABLE', 'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT',
+        'NETWORK_ERROR', 'SERVER_ERROR',
+      ]);
+      if (!controlledCodes.has(err.message)) {
+        console.error('[DharmaChat] unexpected coreSend failure');
+      }
+      if (err.message === 'QUESTION_LIMIT_REACHED') {
+        Alert.alert(
+          lang === 'hindi' ? 'आज की प्रश्न सीमा पूरी हुई' : 'Daily question limit reached',
+          getErrorMsg(err, lang),
+          [
+            { text: lang === 'hindi' ? 'अभी नहीं' : 'Not now' },
+            { text: lang === 'hindi' ? 'अपग्रेड करें' : 'Upgrade', onPress: () => router.push('/payment') },
+          ],
+        );
+        if (isMountedRef.current) {
+          setMsgs(p => p.filter(m => m.id !== aid));
+        }
+        return false;
+      }
       const errMsg = getErrorMsg(err, lang);
       if (isMountedRef.current) {
         setMsgs(p => p.map(m => m.id === aid
@@ -658,9 +768,6 @@ if (!resolvedPhone) {
     }
   } catch {}
 }
-
-const isPremium = await checkPremiumAccess(resolvedPhone);
-    if (!isPremium) return; // silently skip — user sees premium lock on manual send
 
     const clean = Sec.clean(question);
     if (!clean || clean.length < 2 || !Sec.valid(clean)) return;
@@ -701,21 +808,6 @@ if (!phone) {
     }
   } catch {}
 }
-    const isPremium = await checkPremiumAccess(phone);
-    if (!isPremium) {
-      Alert.alert(
-        '🔒 Premium Required',
-        userLang === 'hindi'
-          ? 'यह feature Premium users के लिए है। Upgrade करें 🙏'
-          : 'This feature is for Premium users. Please upgrade 🙏',
-        [
-          { text: 'Cancel' },
-          { text: 'Upgrade', onPress: () => router.push('/payment') },
-        ]
-      );
-      return;
-    }
-
     if (!raw || loadingRef.current || !ready) return;
 
     if (!Sec.ok()) {
@@ -915,10 +1007,8 @@ if (!phone) {
                 <View style={s.aBdg}><Text style={{ fontSize: 11 }}>🕉</Text></View>
                 <View style={[s.aBub, msg.isError && s.aBubError]}>
                   {msg.title ? <Text style={s.aTitle}>{msg.title}</Text> : null}
-                  <Text style={[s.aTxt, msg.isError && s.aTxtError]}>
-                    {showTxt}
-                    {msg.streaming ? <Text style={s.cur}> ▌</Text> : null}
-                  </Text>
+                  <SafeMarkdown text={showTxt} style={[s.aTxt, msg.isError && s.aTxtError]} />
+                  {msg.streaming ? <Text style={s.cur}>▌</Text> : null}
 
                   {/* FIX: Retry button for failed messages */}
                   {msg.isError && msg.retryClean && (
@@ -1023,6 +1113,8 @@ if (!phone) {
             multiline
             maxLength={500}
             editable={!loading}
+            returnKeyType="send"
+            onSubmitEditing={() => { if (!loading && input.trim()) send(input); }}
           />
 
           {/* 🎤 MIC BUTTON */}
@@ -1033,7 +1125,9 @@ if (!phone) {
               alignItems: 'center', justifyContent: 'center',
             }}
             onPress={startVoiceInput}
-            disabled={loading}>
+            disabled={loading}
+            accessibilityRole="button"
+            accessibilityLabel={isH ? 'आवाज़ से प्रश्न पूछें' : 'Ask using voice'}>
             <Text style={{ color: '#fff', fontSize: 18 }}>🎤</Text>
           </TouchableOpacity>
 
@@ -1042,10 +1136,13 @@ if (!phone) {
             <TouchableOpacity
               style={[s.sendBtn, (!input.trim() || loading) && s.sendOff]}
               onPress={() => send(input)}
-              disabled={!input.trim() || loading}>
+              disabled={!input.trim() || loading}
+              accessibilityRole="button"
+              accessibilityLabel={chatMode === 'factcheck' ? (isH ? 'दावे की जाँच करें' : 'Verify claim') : (isH ? 'प्रश्न पूछें' : 'Ask question')}
+              accessibilityState={{ disabled: !input.trim() || loading, busy: loading }}>
               {loading
                 ? <ActivityIndicator color="#fff" size="small" />
-                : <Text style={s.sendIco}>›</Text>
+                : <Text style={s.sendIco}>{chatMode === 'factcheck' ? (isH ? '✓ जाँचें' : '✓ Verify') : (isH ? '✨ पूछें' : '✨ Ask')}</Text>
               }
             </TouchableOpacity>
           </Animated.View>
@@ -1142,7 +1239,7 @@ const s = StyleSheet.create({
 
   iBar: { flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#0D0500', borderTopWidth: 1, borderTopColor: 'rgba(240,165,0,0.07)', alignItems: 'flex-end' },
   inp: { flex: 1, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 16, paddingHorizontal: 14, paddingVertical: 11, color: '#FDF6ED', fontSize: 14, maxHeight: 120, minHeight: 46, borderWidth: 1, borderColor: 'rgba(200,130,40,0.16)', lineHeight: 20 },
-  sendBtn: { width: 46, height: 46, borderRadius: 14, backgroundColor: '#E8620A', alignItems: 'center', justifyContent: 'center', elevation: 5 },
+  sendBtn: { minWidth: 76, height: 46, paddingHorizontal: 12, borderRadius: 14, backgroundColor: '#E8620A', alignItems: 'center', justifyContent: 'center', elevation: 5 },
   sendOff: { backgroundColor: 'rgba(232,98,10,0.2)', elevation: 0 },
-  sendIco: { color: '#fff', fontSize: 28, fontWeight: '700', marginBottom: 2 },
+  sendIco: { color: '#fff', fontSize: 13, fontWeight: '700' },
 });
