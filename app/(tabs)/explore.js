@@ -28,7 +28,7 @@ import {
   Vibration, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { submitFeedback } from '../../utils/register_backend';
+import { submitAIFeedback } from '../../utils/register_backend';
 import { BACKEND_CONFIG, getBackendUrl } from '../../utils/backend-config';
 
 const { width: SW } = Dimensions.get('window');
@@ -120,8 +120,8 @@ async function callBackendAI(messages, userProfile, mode, phone) {
     }
 
     const data = await res.json();
-    if (!data.success || !data.text) throw new Error('Empty response from server');
-    return data.text;
+    if (!data.success || (!data.text && !data.nonFactCheckable)) throw new Error('Empty response from server');
+    return data;
 
   } catch (e) {
     clearTimeout(timeout);
@@ -154,6 +154,17 @@ function parseResp(raw) {
   return { title, body: body.trim(), src, ver };
 }
 
+function normalizeAIText(text) {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/^\s*#{1,6}\s*$/gm, '')
+    .replace(/\*\*([^*\n]+)$/gm, '$1')
+    .replace(/(^|[^*])\*([^*\n]+)$/gm, '$1$2')
+    .replace(/\n[ \t]+\n/g, '\n\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function renderInlineMarkdown(text, baseStyle) {
   return String(text).split(/(\*\*[^*]+\*\*|\*[^*\n]+\*)/g).filter(Boolean).map((part, index) => {
     if (part.startsWith('**') && part.endsWith('**')) {
@@ -167,15 +178,17 @@ function renderInlineMarkdown(text, baseStyle) {
 }
 
 function SafeMarkdown({ text, style }) {
-  const lines = String(text || '').split('\n');
+  const lines = normalizeAIText(text).split('\n');
   return <View>{lines.map((rawLine, index) => {
+    if (/^\s*---+\s*$/.test(rawLine)) return <View key={index} style={s.mdRule} />;
+    if (!rawLine.trim()) return <View key={index} style={s.mdBreak} />;
     const heading = rawLine.match(/^#{1,6}\s+(.+)$/);
     const bullet = rawLine.match(/^\s*[-•]\s+(.+)$/);
     const numbered = rawLine.match(/^\s*(\d+\.)\s+(.+)$/);
     const content = heading?.[1] || bullet?.[1] || numbered?.[2] || rawLine;
     const prefix = bullet ? '• ' : numbered ? `${numbered[1]} ` : '';
-    return <Text key={index} style={[style, heading && { fontWeight: '800' }]}>
-      {prefix}{renderInlineMarkdown(content, style)}{index < lines.length - 1 ? '\n' : ''}
+    return <Text key={index} style={[style, s.mdLine, heading && s.mdHeading]}>
+      {prefix}{renderInlineMarkdown(content, style)}
     </Text>;
   })}</View>;
 }
@@ -199,19 +212,6 @@ async function saveAns(q, a, src) {
   arr.unshift({ id: Date.now().toString(), q, a, src, at: new Date().toISOString() });
   await AsyncStorage.setItem('dharmasetu_saved', JSON.stringify(arr));
   await addPts('save');
-}
-
-async function storeFb(q, a, rating, reason, phone) {
-  try {
-    const arr = JSON.parse(await AsyncStorage.getItem('dharmasetu_feedback') || '[]');
-    arr.push({ q, a, rating, reason, at: new Date().toISOString() });
-    await AsyncStorage.setItem('dharmasetu_feedback', JSON.stringify(arr.slice(-200)));
-    if (rating === 'up') await addPts('thumbsup');
-    if (rating === 'down' && reason) await addPts('feedback_given');
-    if (rating === 'down') {
-      await submitFeedback(q, a, rating, reason, phone || '');
-    }
-  } catch { }
 }
 
 async function doShare(question, answer, src) {
@@ -692,13 +692,29 @@ export default function DharmaChatScreen() {
         : [{ role: 'user', content: clean }];
 
       const profile = { name, deity, rashi, nakshatra: nak, language: lang };
-      const rawA = await callBackendAI(messages, profile, isFC ? 'factcheck' : 'dharma', phone);
+      const requestStartedAt = Date.now();
+      const response = await callBackendAI(messages, profile, isFC ? 'factcheck' : 'dharma', phone);
+      if (response.nonFactCheckable) {
+        if (isMountedRef.current) setMsgs(p => p.filter(m => m.id !== aid));
+        Alert.alert(
+          lang === 'hindi' ? 'यह तथ्य-जाँच योग्य दावा नहीं है' : 'Not a fact-checkable claim',
+          lang === 'hindi' ? 'क्या आप इसे DharmaChat में पूछना चाहेंगे?' : 'Would you like to ask it in DharmaChat?',
+          [
+            { text: lang === 'hindi' ? 'यहीं रहें' : 'Stay here' },
+            { text: lang === 'hindi' ? 'DharmaChat में पूछें' : 'Ask in DharmaChat', onPress: () => { setChatMode('dharma'); setInput(clean); } },
+          ],
+        );
+        return true;
+      }
+      const rawA = response.text;
       const parsed = parseResp(rawA);
 
       if (isMountedRef.current) {
         setMsgs(p => p.map(m => m.id === aid
           ? { ...m, title: parsed.title, src: parsed.src, ver: parsed.ver,
-              origBody: parsed.body, thinking: false, isError: false }
+              origBody: parsed.body, thinking: false, isError: false,
+              provider: response.usedApi, model: response.model, mode: isFC ? 'factcheck' : 'dharma',
+              latencyMs: Date.now() - requestStartedAt, incomplete: !!response.incomplete }
           : m
         ));
         setHist(p => [...p,
@@ -854,10 +870,13 @@ if (!phone) {
   const handleUp = async msg => {
     if (msg.feedback) return;
     Vibration.vibrate(20);
-    if (isMountedRef.current) setMsgs(p => p.map(m => m.id === msg.id ? { ...m, feedback: 'up' } : m));
     try {
-      await submitFeedback(msg.question || '', msg.body, 'up', '', userPhone);
-    } catch (e) { console.error('[DharmaChat] Feedback up error:', e); }
+      await submitAIFeedback(msg.question || '', msg.body, 'up', '', userPhone, userLang, {
+        feature: (msg.mode || chatMode) === 'factcheck' ? 'fact_check' : 'dharma_chat', messageId: msg.id,
+        provider: msg.provider, model: msg.model, mode: msg.mode || chatMode, latencyMs: msg.latencyMs,
+      });
+      if (isMountedRef.current) setMsgs(p => p.map(m => m.id === msg.id ? { ...m, feedback: 'up' } : m));
+    } catch { Alert.alert('', userLang === 'hindi' ? 'Feedback सेव नहीं हुआ। फिर प्रयास करें।' : 'Feedback was not saved. Please try again.'); return; }
     addPts('thumbsup').then(n => { if (isMountedRef.current) setPts(n); });
   };
 
@@ -865,14 +884,17 @@ if (!phone) {
 
   const submitFb = async (reason) => {
     const msg = msgs.find(m => m.id === fbMsgId);
-    if (isMountedRef.current) {
-      setMsgs(p => p.map(m => m.id === fbMsgId ? { ...m, feedback: 'down' } : m));
-      setFbMsgId(null);
-    }
     try {
-      if (msg) await submitFeedback(msg.question || '', msg.body, 'down', reason, userPhone);
-    } catch (e) { console.error('[DharmaChat] Feedback down error:', e); }
-    Alert.alert('🙏', userLang === 'hindi' ? 'Feedback मिल गया! धन्यवाद।' : 'Feedback received! Thank you.');
+      if (msg) await submitAIFeedback(msg.question || '', msg.body, 'down', reason, userPhone, userLang, {
+        feature: (msg.mode || chatMode) === 'factcheck' ? 'fact_check' : 'dharma_chat', messageId: msg.id,
+        provider: msg.provider, model: msg.model, mode: msg.mode || chatMode, latencyMs: msg.latencyMs,
+      });
+      if (isMountedRef.current) {
+        setMsgs(p => p.map(m => m.id === fbMsgId ? { ...m, feedback: 'down' } : m));
+        setFbMsgId(null);
+      }
+    } catch { Alert.alert('', userLang === 'hindi' ? 'Feedback सेव नहीं हुआ। फिर प्रयास करें।' : 'Feedback was not saved. Please try again.'); return; }
+    Alert.alert('🙏', userLang === 'hindi' ? 'Feedback सेव हो गया। धन्यवाद।' : 'Feedback saved. Thank you.');
     addPts('feedback_given').then(n => { if (isMountedRef.current) setPts(n); });
   };
 
@@ -1008,6 +1030,7 @@ if (!phone) {
                 <View style={[s.aBub, msg.isError && s.aBubError]}>
                   {msg.title ? <Text style={s.aTitle}>{msg.title}</Text> : null}
                   <SafeMarkdown text={showTxt} style={[s.aTxt, msg.isError && s.aTxtError]} />
+                  {msg.incomplete && !msg.streaming ? <Text style={s.incompleteTxt}>{isH ? 'उत्तर अधूरा रह गया। कृपया प्रश्न को अधिक विशिष्ट करके दोबारा पूछें।' : 'The provider stopped before completing this answer. Please retry with a more specific question.'}</Text> : null}
                   {msg.streaming ? <Text style={s.cur}>▌</Text> : null}
 
                   {/* FIX: Retry button for failed messages */}
@@ -1208,6 +1231,11 @@ const s = StyleSheet.create({
   aBubError: { borderColor: 'rgba(231,76,60,0.4)', backgroundColor: '#1A0600' },
   aTitle: { fontSize: 14, fontWeight: '700', color: '#F4A261', marginBottom: 2 },
   aTxt: { fontSize: 14, color: '#FDF6ED', lineHeight: 25 },
+  mdLine: { marginTop: 0, marginBottom: 0 },
+  mdHeading: { fontWeight: '800', color: '#F4A261', marginTop: 3, marginBottom: 1 },
+  mdBreak: { height: 7 },
+  mdRule: { height: 1, backgroundColor: 'rgba(253,246,237,0.16)', marginVertical: 7 },
+  incompleteTxt: { marginTop: 8, color: '#F4A261', fontSize: 12, lineHeight: 18 },
   aTxtError: { color: 'rgba(231,76,60,0.85)', fontSize: 13 },
   cur: { color: '#E8620A', fontWeight: 'bold' },
 

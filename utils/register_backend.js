@@ -128,11 +128,10 @@ export async function submitFeedback(question, wrongAnswer, rating, reason, phon
  * Powers the admin AI feedback moderation panel.
  * Non-blocking — never breaks the chat flow.
  */
-export async function submitAIFeedback(question, ai_answer, rating, reason, phone, language = 'hindi') {
-  try {
-    await fetch(`${BACKEND_URL}/ai/feedback`, {
+export async function submitAIFeedback(question, ai_answer, rating, reason, phone, language = 'hindi', metadata = {}) {
+  const res = await fetch(`${BACKEND_URL}/ai/feedback`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await authenticatedHeaders(),
       body: JSON.stringify({
         question:  question  || '',
         ai_answer: ai_answer || '',
@@ -140,11 +139,17 @@ export async function submitAIFeedback(question, ai_answer, rating, reason, phon
         reason:    reason    || '',
         phone:     phone     || '',
         language:  language  || 'hindi',
+        feature: metadata.feature || 'dharma_chat',
+        message_id: metadata.messageId || '',
+        provider: metadata.provider || '',
+        model: metadata.model || '',
+        mode: metadata.mode || 'dharma',
+        latency_ms: metadata.latencyMs || 0,
       }),
     });
-  } catch {
-    // Silent fail — never break chat flow
-  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) throw new Error(data.error || 'FEEDBACK_SAVE_FAILED');
+  return data;
 }
 export async function getUserFromBackend(phone) {
   try {
