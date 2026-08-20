@@ -93,6 +93,7 @@ export default function RootLayout() {
           <Stack.Screen name="privacy_policy" />
           <Stack.Screen name="terms" />
           <Stack.Screen name="about" />
+          <Stack.Screen name="notifications" />
           <Stack.Screen name="modal" />
         </Stack>
       </SafeAreaProvider>

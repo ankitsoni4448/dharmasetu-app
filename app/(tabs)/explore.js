@@ -114,7 +114,7 @@ async function callBackendAI(messages, userProfile, mode, phone) {
       const knownCodes = new Set([
         'AUTH_REQUIRED', 'PROFILE_NOT_FOUND', 'FEATURE_DISABLED', 'FORBIDDEN',
         'QUOTA_INFRASTRUCTURE_UNAVAILABLE', 'AI_PROVIDER_CONFIGURATION_ERROR',
-        'AI_PROVIDER_UNAVAILABLE', 'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT', 'SERVER_ERROR',
+        'AI_PROVIDER_UNAVAILABLE', 'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT', 'AI_INCOMPLETE_RESPONSE', 'SERVER_ERROR',
       ]);
       throw new Error(knownCodes.has(err.error) ? err.error : 'SERVER_ERROR');
     }
@@ -132,7 +132,7 @@ async function callBackendAI(messages, userProfile, mode, phone) {
       'AUTH_REQUIRED', 'PROFILE_NOT_FOUND', 'FEATURE_DISABLED', 'FORBIDDEN',
       'QUESTION_LIMIT_REACHED', 'RATE_LIMIT', 'QUOTA_INFRASTRUCTURE_UNAVAILABLE',
       'AI_PROVIDER_CONFIGURATION_ERROR', 'AI_PROVIDER_UNAVAILABLE',
-      'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT', 'SERVER_ERROR',
+      'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT', 'AI_INCOMPLETE_RESPONSE', 'SERVER_ERROR',
     ]);
     throw safeCodes.has(e.message) ? e : new Error('SERVER_ERROR');
   }
@@ -630,6 +630,9 @@ export default function DharmaChatScreen() {
     if (err.message === 'AI_TIMEOUT') {
       return lang === 'hindi' ? 'AI सेवा ने समय पर उत्तर नहीं दिया। कृपया दोबारा प्रयास करें।' : 'The AI service timed out. Please try again.';
     }
+    if (err.message === 'AI_INCOMPLETE_RESPONSE') {
+      return lang === 'hindi' ? 'पूरा उत्तर तैयार नहीं हो सका। कृपया थोड़ी देर बाद फिर प्रयास करें।' : 'A complete answer could not be prepared. Please try again shortly.';
+    }
     if (err.message === 'AI_SERVICE_ERROR') {
       return lang === 'hindi' ? 'सर्वर में अस्थायी समस्या है। कृपया दोबारा प्रयास करें।' : 'The server encountered a temporary problem. Please try again.';
     }
@@ -729,7 +732,7 @@ export default function DharmaChatScreen() {
         'QUESTION_LIMIT_REACHED', 'AUTH_REQUIRED', 'PROFILE_NOT_FOUND',
         'FEATURE_DISABLED', 'RATE_LIMIT', 'FORBIDDEN',
         'QUOTA_INFRASTRUCTURE_UNAVAILABLE', 'AI_PROVIDER_CONFIGURATION_ERROR',
-        'AI_PROVIDER_UNAVAILABLE', 'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT',
+        'AI_PROVIDER_UNAVAILABLE', 'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT', 'AI_INCOMPLETE_RESPONSE',
         'NETWORK_ERROR', 'SERVER_ERROR',
       ]);
       if (!controlledCodes.has(err.message)) {
@@ -1030,7 +1033,6 @@ if (!phone) {
                 <View style={[s.aBub, msg.isError && s.aBubError]}>
                   {msg.title ? <Text style={s.aTitle}>{msg.title}</Text> : null}
                   <SafeMarkdown text={showTxt} style={[s.aTxt, msg.isError && s.aTxtError]} />
-                  {msg.incomplete && !msg.streaming ? <Text style={s.incompleteTxt}>{isH ? 'उत्तर अधूरा रह गया। कृपया प्रश्न को अधिक विशिष्ट करके दोबारा पूछें।' : 'The provider stopped before completing this answer. Please retry with a more specific question.'}</Text> : null}
                   {msg.streaming ? <Text style={s.cur}>▌</Text> : null}
 
                   {/* FIX: Retry button for failed messages */}
@@ -1235,7 +1237,6 @@ const s = StyleSheet.create({
   mdHeading: { fontWeight: '800', color: '#F4A261', marginTop: 3, marginBottom: 1 },
   mdBreak: { height: 7 },
   mdRule: { height: 1, backgroundColor: 'rgba(253,246,237,0.16)', marginVertical: 7 },
-  incompleteTxt: { marginTop: 8, color: '#F4A261', fontSize: 12, lineHeight: 18 },
   aTxtError: { color: 'rgba(231,76,60,0.85)', fontSize: 13 },
   cur: { color: '#E8620A', fontWeight: 'bold' },
 

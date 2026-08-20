@@ -34,6 +34,7 @@ import {
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getBackendUrl, BACKEND_CONFIG } from '../../utils/backend-config';
+import NotificationBell from '../../components/app/NotificationBell';
 
 const API_URL = getBackendUrl(BACKEND_CONFIG.ENDPOINTS.PANCHANG_TODAY);
 
@@ -958,6 +959,7 @@ export default function HomeScreen() {
           <Text style={s.hdrSub}>{isH ? 'जय सनातन धर्म 🔱' : 'Jai Sanatan Dharma 🔱'}</Text>
         </View>
         <View style={{ flexDirection:'row', gap:8 }}>
+          <NotificationBell language={lang} />
           {[{ id:'hindi', l:'हिं' }, { id:'english', l:'EN' }].map(({ id, l }) => (
             <TouchableOpacity key={id}
               style={[s.langBtn, lang === id && s.langBtnOn]}
