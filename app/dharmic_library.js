@@ -9,7 +9,7 @@ import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
-import { safeGet, safeSet, safeGetString, KEYS } from './utils/storage';
+import { safeGet, safeSet, safeGetString, KEYS } from '../utils/storage';
 import { BookListSkeleton } from './components/SkeletonLoader';
 import {
   recordBookView, toggleFavScripture, isFavScripture,

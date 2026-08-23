@@ -8,7 +8,7 @@ import {
   Modal, Animated, Dimensions,
 } from 'react-native';
 import { router } from 'expo-router';
-import { safeGet, KEYS } from '../utils/storage';
+import { safeGet, KEYS } from '../../utils/storage';
 
 const { width: SW } = Dimensions.get('window');
 const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://dharmasetu-backend-2c65.onrender.com';

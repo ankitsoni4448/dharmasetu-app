@@ -13,7 +13,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack }            from 'expo-router';
 import { fetchAndCacheConfig } from '../app_config';
 import { useEffect }        from 'react';
-import ErrorBoundary        from '../components/app/ErrorBoundary';
+import ErrorBoundary        from './components/ErrorBoundary';
 import { safeGet, KEYS }   from '../utils/storage';
 import {
   configureNotificationHandler,
@@ -21,9 +21,9 @@ import {
   getExpoPushToken,
   hasNotificationPermission,
 } from '../utils/notifications';
-import { touchStreak }      from '../utils/journey';
-import { flushOfflineQueue, registerPushToken } from '../utils/futureScale';
-import { startPeriodicFlush, track, EVENTS } from '../utils/analytics';
+import { touchStreak }      from './utils/journey';
+import { flushOfflineQueue, registerPushToken } from './utils/futureScale';
+import { startPeriodicFlush, track, EVENTS } from './utils/analytics';
 
 
 export default function RootLayout() {

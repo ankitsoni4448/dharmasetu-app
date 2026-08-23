@@ -9,7 +9,7 @@ import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MANTRAS, MANTRA_CATEGORIES } from './data/mantras';
-import { safeGet, safeSet, KEYS } from './utils/storage';
+import { safeGet, safeSet, KEYS } from '../utils/storage';
 // P4 audio ecosystem
 import {
   speakMantra, stopSpeaking, isSpeaking,
