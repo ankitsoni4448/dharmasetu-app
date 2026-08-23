@@ -278,6 +278,10 @@ export default function ProfileScreen() {
           </View>
 
           {/* ── EDIT PROFILE ─── */}
+          <TouchableOpacity style={s.myKundliBtn} onPress={() => router.push('/my_kundli')} activeOpacity={0.85}>
+            <Text style={s.myKundliBtnTxt}>{isH ? 'मेरी कुंडली खोलें' : 'Open My Kundli'}</Text>
+          </TouchableOpacity>
+
           {editing ? (
             <View style={s.card}>
               <Text style={s.cardTitle}>✏️ {isH ? 'प्रोफ़ाइल संपादित करें' : 'Edit Profile'}</Text>
@@ -387,6 +391,8 @@ const s = StyleSheet.create({
   infoRow:  { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)' },
   infoLbl:  { fontSize: 12, color: 'rgba(253,246,237,0.35)', flex: 1 },
   infoVal:  { fontSize: 12, color: '#FDF6ED', fontWeight: '600', flex: 2, textAlign: 'right' },
+  myKundliBtn: { backgroundColor: 'rgba(232,98,10,0.12)', borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginBottom: 14, borderWidth: 1, borderColor: 'rgba(232,98,10,0.35)' },
+  myKundliBtnTxt: { color: '#F4A261', fontSize: 14, fontWeight: '800' },
 
   // Edit profile
   editProfileBtn: { backgroundColor: 'rgba(232,98,10,0.1)', borderRadius: 14, paddingVertical: 13, alignItems: 'center', marginBottom: 14, borderWidth: 1, borderColor: 'rgba(232,98,10,0.3)' },
