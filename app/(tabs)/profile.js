@@ -21,10 +21,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import {
   safeGet, safeSet, safeGetInt, safeGetString,
-  safeSetString, clearLoginSession, KEYS,
+  safeSetString, KEYS,
 } from '../../utils/storage';
 import { getBackendUrl, BACKEND_CONFIG } from '../../utils/backend-config';
 import { supabase } from '../../utils/supabase';
+import { authenticatedFetch } from '../../utils/entitlements';
+import { clearAuthenticatedLocalData, deleteCurrentAccount } from '../../utils/accountLifecycle';
 
 // ── BADGE SYSTEM ─────────────────────────────────────────────────
 const BADGES = [
@@ -85,7 +87,7 @@ export default function ProfileScreen() {
       setLang(u?.language || l || 'hindi');
       if (u) {
         setEditName(u.name || '');
-        setEditCity(u.birthCity || u.birth_city || '');
+        setEditCity(u.current_place_name || u.currentLocation || '');
         setEditLang(u.language || 'hindi');
       }
       Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }).start();
@@ -105,19 +107,18 @@ export default function ProfileScreen() {
       const updated = {
         ...(user || {}),
         name:      editName.trim(),
-        birthCity: editCity.trim(),
+        currentLocation: editCity.trim(),
         language:  editLang,
       };
       await safeSet(KEYS.USER, updated);
       await safeSetString(KEYS.USER_LANGUAGE, editLang);
       // Sync to backend (non-blocking)
-      fetch(getBackendUrl(BACKEND_CONFIG.ENDPOINTS.USERS_UPDATE), {
+      authenticatedFetch(getBackendUrl(BACKEND_CONFIG.ENDPOINTS.USERS_UPDATE), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phone: user?.phone || '',
           name: updated.name,
-          birthCity: updated.birthCity,
+          currentLocation: updated.currentLocation,
           language: updated.language,
         }),
       }).catch(() => {});
@@ -152,7 +153,7 @@ export default function ProfileScreen() {
               Alert.alert('Error', isH ? 'लॉगआउट नहीं हो सका। फिर कोशिश करें।' : 'Could not log out. Please try again.');
               return;
             }
-            await clearLoginSession();
+            await clearAuthenticatedLocalData();
             router.replace('/login');
           },
         },
@@ -165,8 +166,30 @@ export default function ProfileScreen() {
     Alert.alert(
       isH ? 'खाता हटाना' : 'Delete Account',
       isH
-        ? 'सुरक्षित स्थायी खाता हटाने की सुविधा अगले नियंत्रित चरण में उपलब्ध होगी।'
-        : 'Secure permanent account deletion will be available in a later controlled phase.'
+        ? 'यह आपका प्रोफ़ाइल, जन्म विवरण, कुंडली और व्यक्तिगत डेटा स्थायी रूप से हटा देगा। भुगतान अभिलेख अनाम रूप में रखे जा सकते हैं।'
+        : 'This permanently deletes your profile, birth details, Kundli, and personal data. Payment records may be retained in anonymized form.',
+      [
+        { text: isH ? 'रद्द करें' : 'Cancel', style: 'cancel' },
+        { text: isH ? 'आगे बढ़ें' : 'Continue', style: 'destructive', onPress: () => Alert.alert(
+          isH ? 'अंतिम पुष्टि' : 'Final confirmation',
+          isH ? 'क्या आप खाता स्थायी रूप से हटाना चाहते हैं?' : 'Permanently delete this account?',
+          [
+            { text: isH ? 'नहीं' : 'No', style: 'cancel' },
+            { text: isH ? 'स्थायी रूप से हटाएँ' : 'Delete permanently', style: 'destructive', onPress: async () => {
+              setLoading(true);
+              try {
+                const { data } = await supabase.auth.getUser();
+                await deleteCurrentAccount(data.user?.phone || user?.phone || '');
+                await clearAuthenticatedLocalData();
+                await supabase.auth.signOut().catch(() => {});
+                router.replace('/login');
+              } catch {
+                Alert.alert('Error', isH ? 'खाता हटाया नहीं जा सका। दोबारा लॉगिन करके प्रयास करें।' : 'The account could not be deleted. Sign in again and retry.');
+              } finally { if (isMounted.current) setLoading(false); }
+            } },
+          ]
+        ) },
+      ]
     );
   };
 
@@ -268,7 +291,7 @@ export default function ProfileScreen() {
                 placeholder={isH ? 'पूरा नाम' : 'Full name'}
               />
 
-              <Text style={s.fieldLbl}>{isH ? 'जन्म नगर' : 'Birth City'}</Text>
+              <Text style={s.fieldLbl}>{isH ? 'वर्तमान शहर' : 'Current City'}</Text>
               <TextInput
                 style={s.input}
                 value={editCity}

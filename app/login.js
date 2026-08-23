@@ -11,6 +11,7 @@
 import { supabase } from '../utils/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { registerUserToBackend, getUserFromBackend } from '../utils/register_backend';
+import { generatePrimaryKundli, restoreAccountLifecycle, saveAccountOnboarding } from '../utils/accountLifecycle';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
@@ -141,6 +142,7 @@ export default function LoginScreen() {
 
   // Form state
   const [name, setName] = useState('');
+  const [gender, setGender] = useState('');
   const [dobDay, setDobDay] = useState('');
   const [dobMonth, setDobMonth] = useState('');
   const [dobYear, setDobYear] = useState('');
@@ -148,6 +150,8 @@ export default function LoginScreen() {
   const [timeSlot, setTimeSlot] = useState('');
   const [exactTime, setExactTime] = useState('');
   const [birthCity, setBirthCity] = useState('');
+  const [birthTimeCertainty, setBirthTimeCertainty] = useState('');
+  const [birthDataConsent, setBirthDataConsent] = useState(false);
   const [lang, setLang] = useState('hindi');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
@@ -203,6 +207,20 @@ export default function LoginScreen() {
       const authPhone = authData.user?.phone || sessionData.session.user?.phone || '';
       const localPhone = authPhone.startsWith('+91') ? authPhone.slice(3) : authPhone;
 
+      try {
+        const lifecycle = await restoreAccountLifecycle();
+        if (lifecycle?.profile && lifecycle.profile.onboarding_status !== 'PROFILE_PENDING') {
+          const restored = { ...lifecycle.profile, phone: localPhone, auth_user_id: authData.user?.id,
+            rashi: lifecycle.jyotishProfile?.compact_context?.rashi || '',
+            nakshatra: lifecycle.jyotishProfile?.compact_context?.nakshatra || '',
+            lagna: lifecycle.jyotishProfile?.compact_context?.lagna || '' };
+          await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(restored));
+          if (lifecycle.onboardingStatus === 'KUNDLI_PENDING') generatePrimaryKundli().catch(() => {});
+          if (isMountedRef.current) router.replace('/(tabs)');
+          return;
+        }
+      } catch {}
+
       if (localPhone) {
         const backendUser = await getUserFromBackend(localPhone);
         if (backendUser) {
@@ -233,12 +251,18 @@ try {
   };
 
   const validate = () => {
-    const errs = { 0:!name.trim(), 2:!birthCity.trim() };
+    const errs = { 0:!name.trim() || !gender, 2:!birthCity.trim(), 3:!birthDataConsent };
     if(errs[step]) { Alert.alert('',t.req); return false; }
     if(step===1) {
       if(!dobDay||!dobMonth||!dobYear||dobYear.length<4) { Alert.alert('',t.req); return false; }
-      if(timeMode==='slot'&&!timeSlot) { Alert.alert('',t.reqTime); return false; }
-      if(timeMode==='exact'&&!exactTime) { Alert.alert('',t.reqTime); return false; }
+      const iso = `${dobYear}-${dobMonth.padStart(2,'0')}-${dobDay.padStart(2,'0')}`;
+      const parsed = new Date(`${iso}T00:00:00Z`);
+      if (Number.isNaN(parsed.getTime()) || parsed.getUTCFullYear() !== Number(dobYear) || parsed.getUTCMonth() + 1 !== Number(dobMonth) || parsed.getUTCDate() !== Number(dobDay) || parsed > new Date()) {
+        Alert.alert('', ui === 'hi' ? 'सही, भविष्य की नहीं जन्म तिथि दर्ज करें।' : 'Enter a valid date of birth that is not in the future.'); return false;
+      }
+      if(!birthTimeCertainty) { Alert.alert('',t.reqTime); return false; }
+      if(birthTimeCertainty!=='UNKNOWN'&&timeMode==='slot'&&!timeSlot) { Alert.alert('',t.reqTime); return false; }
+      if(birthTimeCertainty!=='UNKNOWN'&&timeMode==='exact'&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(exactTime)) { Alert.alert('',t.reqTime); return false; }
     }
     return true;
   };
@@ -361,14 +385,31 @@ try {
         } catch (e) { console.log('[Login] Push token err:', e); }
       }
 
+      let lifecycle = null;
+      try { lifecycle = await restoreAccountLifecycle(); } catch {}
+      if (lifecycle?.profile && lifecycle.profile.onboarding_status !== 'PROFILE_PENDING') {
+        const restored = { ...lifecycle.profile, phone, auth_user_id: authUserId,
+          rashi: lifecycle.jyotishProfile?.compact_context?.rashi || '',
+          nakshatra: lifecycle.jyotishProfile?.compact_context?.nakshatra || '',
+          lagna: lifecycle.jyotishProfile?.compact_context?.lagna || '' };
+        await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(restored));
+        if (lifecycle.onboardingStatus === 'KUNDLI_PENDING') generatePrimaryKundli().catch(() => {});
+        if (isMountedRef.current) router.replace('/(tabs)');
+        return;
+      }
+
+      const SLOT_TIMES = { early_morning:'05:00', morning:'09:00', afternoon:'13:30', evening:'16:30', night:'20:00', late_night:'23:00' };
+      const birthTime = birthTimeCertainty === 'UNKNOWN' ? null : timeMode === 'exact' ? exactTime : SLOT_TIMES[timeSlot];
+      const dateOfBirth = `${dobYear}-${dobMonth.padStart(2,'0')}-${dobDay.padStart(2,'0')}`;
       // Build userData early so it's available for both new and returning user paths
       const userData = {
         name: name.trim(), phone,
-        dob: `${dobDay}/${dobMonth}/${dobYear}`,
+        dob: dateOfBirth,
         dobDay, dobMonth, dobYear,
-        timeMode, timeSlot, exactTime,
+        gender, timeMode, timeSlot, exactTime, birthTime,
         birthCity: birthCity.trim(), language: lang,
-        birthTimeAccuracy: timeMode === 'exact' ? 'exact' : 'approximate',
+        birthTimeAccuracy: birthTimeCertainty,
+        birthTimeCertainty, birthDataConsent,
         kundliStatus: 'pending',
         role: 'jigyasu', pts: 0, streak: 0,
         createdAt: new Date().toISOString(),
@@ -394,17 +435,25 @@ try {
         return;
       }
 
-      // New user — save kundli (userData already built above)
+      const onboarding = await saveAccountOnboarding({
+        name: userData.name, gender, dateOfBirth, birthTime,
+        birthTimeCertainty, birthplace: userData.birthCity, language: lang,
+        interests: [], birthDataConsent,
+      });
+
+      if (onboarding.requiresKundliGeneration) {
+        try {
+          const generated = await generatePrimaryKundli();
+          userData.kundliStatus = generated.status;
+          Object.assign(userData, generated.context || {});
+        } catch { userData.kundliStatus = 'KUNDLI_PENDING'; }
+      } else userData.kundliStatus = 'INPUT_CORRECTION_REQUIRED';
+
+      // New user — cache only after authenticated backend profile creation succeeds.
       await AsyncStorage.setItem('dharmasetu_user', JSON.stringify(userData));
       await AsyncStorage.setItem(`ds_acc_${phone}`, JSON.stringify(userData));
       await AsyncStorage.setItem('dharmasetu_pts', '0');
       await AsyncStorage.setItem('dharmasetu_streak_count', '0');
-
-      // Non-blocking backend registration
-      registerUserToBackend({
-        ...userData,
-        authUserId,
-      }).catch(e => console.log('[Login] Backend register error:', e));
 
       if (isMountedRef.current) router.replace('/(tabs)');
     } catch (err) {
@@ -456,6 +505,13 @@ try {
                 <Text style={s.stepNum}>1 {t.of} 5</Text>
                 <Text style={s.cTitle}>{t.s1t}</Text>
                 <TextInput style={s.inp} placeholder={t.s1p} placeholderTextColor="rgba(253,246,237,0.3)" value={name} onChangeText={setName} autoFocus/>
+                <Text style={[s.cSub,{marginTop:14}]}>{ui==='hi'?'लिंग':'Gender'}</Text>
+                <View style={s.choiceWrap}>
+                  {[
+                    ['male',ui==='hi'?'पुरुष':'Male'],['female',ui==='hi'?'महिला':'Female'],
+                    ['other',ui==='hi'?'अन्य':'Other'],['prefer_not_to_say',ui==='hi'?'बताना नहीं चाहते':'Prefer not to say'],
+                  ].map(([id,label])=><TouchableOpacity key={id} style={[s.choiceBtn,gender===id&&s.choiceBtnOn]} onPress={()=>setGender(id)}><Text style={[s.choiceTxt,gender===id&&s.choiceTxtOn]}>{label}</Text></TouchableOpacity>)}
+                </View>
                 <TouchableOpacity style={s.btn} onPress={()=>validate()&&setStep(1)} activeOpacity={0.85}>
                   <Text style={s.btnTxt}>{t.next}</Text>
                 </TouchableOpacity>
@@ -482,17 +538,23 @@ try {
                 {/* Time header */}
                 <Text style={[s.cSub,{marginTop:20,marginBottom:6}]}>{t.s2time}</Text>
                 <Text style={s.subNote}>{t.s2timeSub}</Text>
+                <View style={s.choiceWrap}>
+                  {[
+                    ['EXACT',ui==='hi'?'सटीक':'Exact'],['APPROXIMATE',ui==='hi'?'अनुमानित':'Approximate'],
+                    ['UNCERTAIN',ui==='hi'?'अनिश्चित':'Uncertain'],['UNKNOWN',ui==='hi'?'पता नहीं':'Unknown'],
+                  ].map(([id,label])=><TouchableOpacity key={id} style={[s.choiceBtn,birthTimeCertainty===id&&s.choiceBtnOn]} onPress={()=>{setBirthTimeCertainty(id);if(id==='EXACT')setTimeMode('exact');else if(id!=='UNKNOWN')setTimeMode('slot');}}><Text style={[s.choiceTxt,birthTimeCertainty===id&&s.choiceTxtOn]}>{label}</Text></TouchableOpacity>)}
+                </View>
                 {/* Toggle between slot and exact */}
-                <View style={s.modeToggle}>
+                {birthTimeCertainty && birthTimeCertainty!=='UNKNOWN' && <View style={s.modeToggle}>
                   <TouchableOpacity style={[s.modeBtn,timeMode==='slot'&&s.modeBtnOn]} onPress={()=>setTimeMode('slot')}>
                     <Text style={[s.modeBtnTxt,timeMode==='slot'&&s.modeBtnTxtOn]}>{t.s2slot}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={[s.modeBtn,timeMode==='exact'&&s.modeBtnOn]} onPress={()=>setTimeMode('exact')}>
                     <Text style={[s.modeBtnTxt,timeMode==='exact'&&s.modeBtnTxtOn]}>{t.s2know}</Text>
                   </TouchableOpacity>
-                </View>
+                </View>}
                 {/* Slot selection */}
-                {timeMode==='slot'&&(
+                {birthTimeCertainty!=='UNKNOWN'&&timeMode==='slot'&&(
                   <View style={s.slotGrid}>
                     {TIME_SLOTS.map(ts=>(
                       <TouchableOpacity key={ts.id} style={[s.slotBtn,timeSlot===ts.id&&s.slotBtnOn]} onPress={()=>setTimeSlot(ts.id)} activeOpacity={0.8}>
@@ -502,7 +564,7 @@ try {
                   </View>
                 )}
                 {/* Exact time input */}
-                {timeMode==='exact'&&(
+                {birthTimeCertainty!=='UNKNOWN'&&timeMode==='exact'&&(
                   <TextInput
                     style={[s.inp,{marginTop:8,fontSize:20,textAlign:'center',letterSpacing:4}]}
                     placeholder={t.s2exactP}
@@ -557,9 +619,13 @@ try {
                     </TouchableOpacity>
                   ))}
                 </View>
+                <TouchableOpacity style={s.consentRow} onPress={()=>setBirthDataConsent(v=>!v)} accessibilityRole="checkbox" accessibilityState={{checked:birthDataConsent}}>
+                  <View style={[s.checkbox,birthDataConsent&&s.checkboxOn]}><Text style={s.checkTxt}>{birthDataConsent?'✓':''}</Text></View>
+                  <Text style={s.consentTxt}>{ui==='hi'?'मैं कुंडली, ज्योतिष गणना और व्यक्तिगत DharmaChat सुविधाओं के लिए अपने जन्म विवरण के प्रसंस्करण की सहमति देता/देती हूँ।':'I consent to processing my birth information for Kundli, Jyotish calculations, and personalized DharmaChat features.'}</Text>
+                </TouchableOpacity>
                 <View style={s.navRow}>
                   <TouchableOpacity style={s.backBtn} onPress={()=>setStep(2)}><Text style={s.backBtnTxt}>←</Text></TouchableOpacity>
-                  <TouchableOpacity style={[s.btn,{flex:1}]} onPress={()=>setStep(4)} activeOpacity={0.85}>
+                  <TouchableOpacity style={[s.btn,{flex:1},!birthDataConsent&&s.btnDisabled]} onPress={()=>validate()&&setStep(4)} disabled={!birthDataConsent} activeOpacity={0.85}>
                     <Text style={s.btnTxt}>{t.next}</Text>
                   </TouchableOpacity>
                 </View>
@@ -698,6 +764,16 @@ const s = StyleSheet.create({
   langCardOn:{backgroundColor:'rgba(232,98,10,0.12)',borderColor:'#E8620A'},
   langCardTxt:{fontSize:16,fontWeight:'700',color:'rgba(253,246,237,0.45)'},
   langCardTxtOn:{color:'#F4A261'},
+  choiceWrap:{flexDirection:'row',flexWrap:'wrap',gap:8,marginBottom:10},
+  choiceBtn:{minHeight:44,paddingHorizontal:12,borderRadius:12,borderWidth:1,borderColor:'rgba(200,130,40,0.2)',alignItems:'center',justifyContent:'center'},
+  choiceBtnOn:{backgroundColor:'rgba(232,98,10,0.15)',borderColor:'#E8620A'},
+  choiceTxt:{fontSize:12,color:'rgba(253,246,237,0.55)',fontWeight:'600'},
+  choiceTxtOn:{color:'#F4A261'},
+  consentRow:{flexDirection:'row',gap:10,alignItems:'flex-start',marginTop:14},
+  checkbox:{width:24,height:24,borderRadius:6,borderWidth:1,borderColor:'rgba(200,130,40,0.4)',alignItems:'center',justifyContent:'center'},
+  checkboxOn:{backgroundColor:'#E8620A',borderColor:'#E8620A'},
+  checkTxt:{color:'#fff',fontWeight:'800'},
+  consentTxt:{flex:1,color:'rgba(253,246,237,0.65)',fontSize:12,lineHeight:18},
   navRow:{flexDirection:'row',gap:10,alignItems:'center',marginTop:18},
   backBtn:{width:48,height:48,borderRadius:14,backgroundColor:'rgba(255,255,255,0.07)',alignItems:'center',justifyContent:'center',borderWidth:1,borderColor:'rgba(200,130,40,0.2)'},
   backBtnTxt:{fontSize:20,color:'#F4A261',fontWeight:'700'},

@@ -11,8 +11,9 @@ import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
-import { safeGet, safeSet, safeGetString, safeSetString, clearLoginSession, KEYS } from '../utils/storage';
+import { safeGet, safeSet, safeGetString, safeSetString, KEYS } from '../utils/storage';
 import { supabase } from '../utils/supabase';
+import { clearAuthenticatedLocalData, deleteCurrentAccount } from '../utils/accountLifecycle';
 
 const APP_VERSION = Constants.expoConfig?.version || '1.0.0';
 
@@ -110,7 +111,7 @@ export default function SettingsScreen() {
               Alert.alert('Error', isH ? 'लॉगआउट नहीं हो सका। फिर कोशिश करें।' : 'Could not log out. Please try again.');
               return;
             }
-            await clearLoginSession();
+            await clearAuthenticatedLocalData();
             router.replace('/login');
           },
         },
@@ -122,8 +123,32 @@ export default function SettingsScreen() {
     Alert.alert(
       isH ? 'खाता हटाना' : 'Delete Account',
       isH
-        ? 'सुरक्षित स्थायी खाता हटाने की सुविधा अगले नियंत्रित चरण में उपलब्ध होगी।'
-        : 'Secure permanent account deletion will be available in a later controlled phase.'
+        ? 'यह आपका प्रोफ़ाइल, जन्म विवरण, कुंडली, सूचनाएँ और संबंधित व्यक्तिगत डेटा स्थायी रूप से हटा देगा। भुगतान अभिलेख नीति के अनुसार अनाम रूप में रखे जा सकते हैं।'
+        : 'This permanently deletes your profile, birth details, Kundli, notifications, and associated personal data. Payment records may be retained in anonymized form according to policy.',
+      [
+        { text: isH ? 'रद्द करें' : 'Cancel', style: 'cancel' },
+        { text: isH ? 'आगे बढ़ें' : 'Continue', style: 'destructive', onPress: () => Alert.alert(
+          isH ? 'अंतिम पुष्टि' : 'Final confirmation',
+          isH ? 'यह वापस नहीं किया जा सकता। खाता स्थायी रूप से हटाएँ?' : 'This cannot be undone. Permanently delete the account?',
+          [
+            { text: isH ? 'नहीं' : 'No', style: 'cancel' },
+            { text: isH ? 'स्थायी रूप से हटाएँ' : 'Delete permanently', style: 'destructive', onPress: async () => {
+              setLoading(true);
+              try {
+                const user = await safeGet(KEYS.USER);
+                const { data } = await supabase.auth.getUser();
+                const phone = data.user?.phone || user?.phone || '';
+                await deleteCurrentAccount(phone);
+                await clearAuthenticatedLocalData();
+                await supabase.auth.signOut().catch(() => {});
+                router.replace('/login');
+              } catch (error) {
+                Alert.alert('Error', isH ? 'खाता हटाया नहीं जा सका। दोबारा लॉगिन करके फिर प्रयास करें।' : 'The account could not be deleted. Sign in again and retry.');
+              } finally { if (isMounted.current) setLoading(false); }
+            } },
+          ]
+        ) },
+      ]
     );
   };
 
