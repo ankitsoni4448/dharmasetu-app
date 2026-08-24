@@ -74,29 +74,18 @@ async function callBackendAI(messages, userProfile, mode, phone) {
   const timeout = setTimeout(() => controller.abort(), 45000);
 
   try {
-    const moodHistoryRaw = await AsyncStorage.getItem('user_mood_history');
-    const moodHistory = moodHistoryRaw ? JSON.parse(moodHistoryRaw) : [];
-
-    const panchangRaw = await AsyncStorage.getItem('today_panchang');
-    const panchang = panchangRaw ? JSON.parse(panchangRaw) : {};
-
+    let panchangLocation = null;
+    try {
+      const cached = JSON.parse(await AsyncStorage.getItem('today_panchang') || 'null');
+      if (cached?.location && cached?.timezone) panchangLocation = {
+        latitude: cached.location.latitude, longitude: cached.location.longitude,
+        timezone: cached.timezone, label: cached.location.label || null,
+      };
+    } catch {}
     const res = await authenticatedFetch(getBackendUrl(BACKEND_CONFIG.ENDPOINTS.AI_DHARMA_CHAT), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages,
-        userProfile: {
-          name: userProfile?.name || '',
-          rashi: userProfile?.rashi || '',
-          nakshatra: userProfile?.nakshatra || '',
-          deity: userProfile?.deity || '',
-          language: userProfile?.language || 'hindi',
-        },
-        mode,
-        phone: phone || '',
-        moodHistory,
-        panchang,
-      }),
+      body: JSON.stringify({ messages, mode, panchangLocation }),
       signal: controller.signal,
     });
 
@@ -711,13 +700,19 @@ export default function DharmaChatScreen() {
       }
       const rawA = response.text;
       const parsed = parseResp(rawA);
+      const verifiedSources = Array.isArray(response.metadata?.citations)
+        ? response.metadata.citations.map(item => item.raw).filter(Boolean) : [];
 
       if (isMountedRef.current) {
         setMsgs(p => p.map(m => m.id === aid
-          ? { ...m, title: parsed.title, src: parsed.src, ver: parsed.ver,
+          ? { ...m, title: parsed.title, src: verifiedSources.join(' · '),
+              ver: response.metadata?.citationStatus === 'VALID' && verifiedSources.length > 0,
               origBody: parsed.body, thinking: false, isError: false,
               provider: response.usedApi, model: response.model, mode: isFC ? 'factcheck' : 'dharma',
-              latencyMs: Date.now() - requestStartedAt, incomplete: !!response.incomplete }
+              latencyMs: response.metadata?.latencyMs || Date.now() - requestStartedAt,
+              intent: response.metadata?.intent || response.intent,
+              sourceCount: response.metadata?.sourceCount || 0,
+              incomplete: !!response.incomplete }
           : m
         ));
         setHist(p => [...p,
@@ -734,6 +729,7 @@ export default function DharmaChatScreen() {
         'QUOTA_INFRASTRUCTURE_UNAVAILABLE', 'AI_PROVIDER_CONFIGURATION_ERROR',
         'AI_PROVIDER_UNAVAILABLE', 'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT', 'AI_INCOMPLETE_RESPONSE',
         'NETWORK_ERROR', 'SERVER_ERROR',
+        'PANCHANG_LOCATION_REQUIRED', 'PANCHANG_LOCATION_INVALID', 'PANCHANG_TEMPORARILY_UNAVAILABLE',
       ]);
       if (!controlledCodes.has(err.message)) {
         console.error('[DharmaChat] unexpected coreSend failure');

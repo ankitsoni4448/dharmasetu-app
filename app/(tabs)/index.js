@@ -192,19 +192,21 @@ function PanchangCard({ lang }) {
   const [data, setData] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
   const [city, setCity] = React.useState('');
-  const [inputCity, setInputCity] = React.useState('');
+  const [unavailable, setUnavailable] = React.useState(false);
   const isH = lang === 'hindi';
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
+  const localDate = (() => { const d = new Date(); const pad = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; })();
 
   const getTodayKey = () => {
     const d = new Date();
     // P3 FIX: city-aware cache key prevents stale panchang when city changes
     const citySlug = (city || 'default').toLowerCase().replace(/\s+/g, '_');
-    return `panchang_${citySlug}_${d.getDate()}_${d.getMonth()}_${d.getFullYear()}`;
+    return `panchang_${citySlug}_${timezone.replace(/[^A-Za-z0-9_-]/g, '_')}_${d.getDate()}_${d.getMonth()}_${d.getFullYear()}`;
   };
 
   React.useEffect(() => {
     AsyncStorage.getItem('user_city').then(c => {
-      if (c) { setCity(c); setInputCity(c); }
+      if (c) setCity(c);
     });
   }, []);
 
@@ -221,9 +223,12 @@ function PanchangCard({ lang }) {
         const cached = await AsyncStorage.getItem(cacheKey);
         if (cached) {
           const parsed = JSON.parse(cached);
-          await AsyncStorage.setItem('today_panchang', JSON.stringify(parsed));
-          if (!cancelled) { setData(parsed); setLoading(false); }
-          return;
+          if (parsed.provider && parsed.date === localDate && parsed.timezone === timezone && !parsed._isFallback) {
+            await AsyncStorage.setItem('today_panchang', JSON.stringify(parsed));
+            if (!cancelled) { setData(parsed); setUnavailable(false); setLoading(false); }
+            return;
+          }
+          await AsyncStorage.removeItem(cacheKey);
         }
 
         let lat = null, lng = null;
@@ -237,9 +242,9 @@ function PanchangCard({ lang }) {
         } catch { }
 
         let url = API_URL;
-        if (lat && lng) url += `?lat=${lat}&lng=${lng}`;
-        else if (city) url += `?city=${encodeURIComponent(city)}`;
-        else url += '?city=Delhi';
+        if (lat && lng) url += `?lat=${lat}&lng=${lng}&timezone=${encodeURIComponent(timezone)}`;
+        else if (city) url += `?city=${encodeURIComponent(city)}&timezone=${encodeURIComponent(timezone)}`;
+        else throw new Error('PANCHANG_LOCATION_REQUIRED');
 
         // STEP 2 — API CALL with timeout
         const controller = new AbortController();
@@ -247,16 +252,17 @@ function PanchangCard({ lang }) {
         const res = await fetch(url, { signal: controller.signal });
         clearTimeout(tid);
         const json = await res.json();
-        const finalData = json.data || getLocalFallback();
+        if (!res.ok || !json.success || !json.data) throw new Error(json.error || 'PANCHANG_TEMPORARILY_UNAVAILABLE');
+        const finalData = { ...json.data, cached: Boolean(json.cached) };
 
         await AsyncStorage.setItem('today_panchang', JSON.stringify(finalData));
         await AsyncStorage.setItem(cacheKey, JSON.stringify(finalData));
-        if (!cancelled) setData(finalData);
+        if (!cancelled) { setData(finalData); setUnavailable(false); }
 
       } catch (e) {
         console.log('[Panchang] fetch error:', e.message);
         // FIX: always show fallback on error, never freeze
-        if (!cancelled) setData(getLocalFallback());
+        if (!cancelled) { setData(null); setUnavailable(true); }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -265,18 +271,6 @@ function PanchangCard({ lang }) {
     load();
     return () => { cancelled = true; };
   }, [city]);
-
-  const saveCity = async () => {
-    if (!inputCity.trim()) { Alert.alert('', isH ? 'शहर का नाम दर्ज करें' : 'Enter city name'); return; }
-    await AsyncStorage.setItem('user_city', inputCity.trim());
-    // P3 FIX: clear old city keys so new city loads fresh
-    const oldKey = getTodayKey();
-    await AsyncStorage.removeItem(oldKey);
-    await AsyncStorage.removeItem('today_panchang');
-    setCity(inputCity.trim());
-    setLoading(true);
-    Alert.alert(isH ? 'सेव हो गया' : 'Saved', isH ? 'शहर अपडेट हो गया। नया पंचांग लोड हो रहा है।' : 'City updated. Loading fresh Panchang.');
-  };
 
   if (loading) {
     return (
@@ -293,33 +287,20 @@ function PanchangCard({ lang }) {
     );
   }
 
-  const safeData = data || getLocalFallback();
+  if (unavailable || !data) {
+    return <View style={s.card}><Text style={s.cardTitle}>📅 {isH ? 'पंचांग' : 'Panchang'}</Text><Text style={{color:'rgba(253,246,237,0.65)',lineHeight:20}}>{isH ? 'सटीक पंचांग अभी उपलब्ध नहीं है। स्थान प्रोफ़ाइल/सेटिंग्स में अपडेट करें या बाद में पुनः प्रयास करें।' : 'Accurate Panchang is temporarily unavailable. Update your location in Profile/Settings or try again later.'}</Text></View>;
+  }
+
+  const safeData = data;
 
   return (
     <View style={s.card}>
-      {/* P3: Fallback warning banner */}
-      {safeData._isFallback && (
-        <View style={{ backgroundColor:'rgba(201,131,10,0.1)', borderRadius:8, padding:8, marginBottom:10, flexDirection:'row', alignItems:'center', gap:8, borderWidth:1, borderColor:'rgba(201,131,10,0.25)' }}>
-          <Text style={{ fontSize:11, color:'#C9830A', flex:1 }}>
-            {isH ? '📡 अनुमानित डेटा — इंटरनेट उपलब्ध होने पर ताज़ा होगा' : '📡 Estimated data — will refresh when online'}
-          </Text>
-          <TouchableOpacity onPress={() => { setLoading(true); setData(null); }} hitSlop={{top:8,bottom:8,left:8,right:8}}>
-            <Text style={{ fontSize:11, color:'#E8620A', fontWeight:'700' }}>↻</Text>
-          </TouchableOpacity>
-        </View>
-      )}
       {/* HEADER */}
       <View style={s.panHdr}>
         <View>
           <Text style={s.panTitle}>📅 {isH ? 'पंचांग' : 'Panchang'}</Text>
-          <Text style={s.panSamvat}>
-            {isH ? 'विक्रम संवत' : 'Vikram Samvat'}: {safeData.vikramSamvat}
-          </Text>
-        </View>
-        <View style={[s.auPill, { borderColor: safeData.auspiciousColor }]}>
-          <Text style={[s.auTxt, { color: safeData.auspiciousColor }]}>
-            {safeData.auspiciousLabel}
-          </Text>
+          <Text style={s.panSamvat}>{safeData.date} · {safeData.provider}{safeData.cached ? ` · ${isH ? 'कैश' : 'cached'}` : ''}</Text>
+          <Text style={s.panSamvat}>{safeData.location?.label || `${safeData.location?.latitude}, ${safeData.location?.longitude}`} · {safeData.timezone}</Text>
         </View>
       </View>
 
@@ -328,14 +309,14 @@ function PanchangCard({ lang }) {
         {[
           { lbl: isH ? 'तिथि' : 'Tithi',         val: safeData.tithi },
           { lbl: isH ? 'नक्षत्र' : 'Nakshatra',   val: safeData.nakshatra },
-          { lbl: isH ? 'वार' : 'Vaar',             val: safeData.vaar },
-          { lbl: isH ? 'राहु काल' : 'Rahu Kaal',  val: safeData.rahuKaal },
-          { lbl: isH ? 'अभिजित' : 'Abhijit',      val: safeData.abhijit },
+          { lbl: isH ? 'वार' : 'Weekday',          val: safeData.weekday },
+          { lbl: isH ? 'राहु काल' : 'Rahu Kaal',  val: safeData.rahuKalam },
+          { lbl: isH ? 'अभिजित' : 'Abhijit',      val: safeData.abhijitMuhurta },
           { lbl: isH ? 'पक्ष' : 'Paksha',          val: safeData.paksha },
         ].map(({ lbl, val }) => (
           <View key={lbl} style={s.panCell}>
             <Text style={s.panCellLbl}>{lbl}</Text>
-            <Text style={s.panCellVal}>{val}</Text>
+            <Text style={s.panCellVal}>{val || '—'}</Text>
           </View>
         ))}
       </View>
@@ -352,43 +333,6 @@ function PanchangCard({ lang }) {
         </View>
       </View>
 
-      {/* DEITY */}
-      <View style={s.deityBox}>
-        <Text style={s.deityTxt}>{safeData.vaarDeity}</Text>
-        <Text style={s.deityMantra}>{safeData.vaarMantra}</Text>
-      </View>
-
-      {/* AI INSIGHT */}
-      {(() => {
-        const insight = getDharmicInsight(safeData);
-        if (!insight) return null;
-        return (
-          <View style={{ backgroundColor:'rgba(39,174,96,0.08)', borderRadius:12, padding:12, borderWidth:1, borderColor:'rgba(39,174,96,0.3)', marginBottom:10 }}>
-            <Text style={{ fontSize:13, fontWeight:'800', color:'#27AE60', marginBottom:6 }}>{insight.title}</Text>
-            {insight.points.map((p, i) => (
-              <Text key={i} style={{ fontSize:12, color:'rgba(253,246,237,0.8)', marginBottom:4 }}>• {p}</Text>
-            ))}
-          </View>
-        );
-      })()}
-
-      {/* LOCATION */}
-      <View style={{ marginTop: 10 }}>
-        <TextInput
-          placeholder={isH ? 'शहर बदलें' : 'Change City'}
-          placeholderTextColor="#999"
-          value={inputCity}
-          onChangeText={setInputCity}
-          style={{ borderWidth:1, borderColor:'#444', padding:10, borderRadius:8, color:'#fff' }}
-        />
-        <TouchableOpacity
-          onPress={saveCity}
-          style={{ backgroundColor:'#E8620A', padding:10, borderRadius:8, marginTop:10 }}>
-          <Text style={{ color:'#fff', textAlign:'center' }}>
-            {isH ? 'स्थान अपडेट करें' : 'Update Location'}
-          </Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
@@ -800,9 +744,7 @@ export default function HomeScreen() {
         parsedPanchang = p ? JSON.parse(p) : null;
       } catch { parsedPanchang = null; }
 
-      if (!parsedPanchang || !parsedPanchang.tithi) {
-        parsedPanchang = getLocalFallback();
-      }
+      if (!parsedPanchang || parsedPanchang._isFallback || !parsedPanchang.tithi) parsedPanchang = {};
 
       // FIX: 10-second timeout — was silently waiting 45 seconds
       const controller = new AbortController();
@@ -832,7 +774,8 @@ export default function HomeScreen() {
       // FIX: always show fallback, never silently fail
       try {
         const raw = await AsyncStorage.getItem('today_panchang');
-        const safePanchang = raw ? JSON.parse(raw) : getLocalFallback();
+        const parsed = raw ? JSON.parse(raw) : null;
+        const safePanchang = parsed && !parsed._isFallback ? parsed : null;
         const fallback = getDharmicInsight(safePanchang);
         if (isMountedRef.current) {
           setAiInsight({
