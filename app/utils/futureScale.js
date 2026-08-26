@@ -16,6 +16,7 @@
 // Swap internals without changing any call site.
 // ════════════════════════════════════════════════════════════════
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { authenticatedFetch } from '../../utils/entitlements';
 
 const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://dharmasetu-backend-2c65.onrender.com';
 
@@ -69,7 +70,7 @@ export async function flushOfflineQueue() {
 async function processQueuedAction({ type, payload }) {
   switch (type) {
     case 'book_view':
-      return fetch(`${BACKEND}/library/books/${payload.bookId}/view`, { method: 'POST' });
+      return authenticatedFetch(`${BACKEND}/library/books/${payload.bookId}/view`, { method: 'POST' });
     case 'ai_feedback':
       return fetch(`${BACKEND}/ai/feedback`, {
         method: 'POST',
@@ -127,7 +128,7 @@ export async function searchScriptures(query, { lang, category, useSemantics = f
 export async function getScriptureContext(question, { lang = 'hindi' } = {}) {
   const t = makeAbortTimeout(5000);
   try {
-    const res = await fetch(`${BACKEND}/chat/context`, {
+    const res = await authenticatedFetch(`${BACKEND}/chat/context`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question, lang }),
@@ -190,10 +191,10 @@ export async function triggerBookIndex(bookId) {
 export async function registerPushToken(phone, token) {
   if (!phone || !token) return;
   try {
-    await fetch(`${BACKEND}/users/push-token`, {
+    await authenticatedFetch(`${BACKEND}/users/push-token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, token }),
+      body: JSON.stringify({ token }),
     });
   } catch {}
 }

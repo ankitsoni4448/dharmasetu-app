@@ -122,35 +122,6 @@ const JAPA_MANTRAS = [
 // SUB-COMPONENTS
 // ════════════════════════════════════════════════════════════════
 
-// ── LOCAL FALLBACK (used when API is offline) ─────────────────
-function getLocalFallback() {
-  const d = new Date();
-  const day = d.getDay();
-  const VAAR_HI   = ['रविवार','सोमवार','मंगलवार','बुधवार','गुरुवार','शुक्रवार','शनिवार'];
-  const VAAR_EN   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const DEITIES   = ['Surya Dev','Shiva Ji','Hanuman Ji','Ganesh Ji','Vishnu Ji','Lakshmi Mata','Shani Dev'];
-  const MANTRAS   = ['ॐ घृणि सूर्याय नमः','ॐ नमः शिवाय','ॐ नमो हनुमते रुद्रावताराय',
-    'ॐ गं गणपतये नमः','ॐ नमो भगवते वासुदेवाय','ॐ श्रीं महालक्ष्म्यै नमः','ॐ शं शनैश्चराय नमः'];
-  const TITHIS    = ['Pratipada','Dwitiya','Tritiya','Chaturthi','Panchami','Shashthi','Saptami',
-    'Ashtami','Navami','Dashami','Ekadashi','Dwadashi','Trayodashi','Chaturdashi','Purnima'];
-  const NAKS      = ['Ashwini','Bharani','Krittika','Rohini','Mrigashira','Ardra','Punarvasu',
-    'Pushya','Ashlesha','Magha','Purva Phalguni','Uttara Phalguni','Hasta','Chitra','Swati'];
-  const doy = Math.floor((d - new Date(d.getFullYear(),0,0)) / 86400000);
-  const yr  = d.getMonth() >= 3 ? d.getFullYear() + 57 : d.getFullYear() + 56;
-  return {
-    tithi: TITHIS[doy % 15], nakshatra: NAKS[doy % 15], yoga: 'Shubha', karana: 'Bava',
-    weekday: VAAR_EN[day], sunrise: '06:12', sunset: '18:44',
-    paksha: doy % 30 < 15 ? 'Shukla Paksha' : 'Krishna Paksha',
-    vaar: VAAR_HI[day] + ' / ' + VAAR_EN[day],
-    vaarDeity: DEITIES[day], vaarMantra: MANTRAS[day],
-    auspiciousLabel: '⚖️ सामान्य दिन', auspiciousColor: '#C9830A',
-    vikramSamvat: yr, rahuKaal: 'See almanac', abhijit: '11:48 – 12:12',
-    specialEvents: [],
-    dateStr: d.toLocaleDateString('en-IN', { weekday:'long', day:'numeric', month:'long', year:'numeric' }),
-    _isFallback: true,
-  };
-}
-
 function getDharmicInsight(data) {
   if (!data) return null;
   let title = '🧠 Dharmic Insight';

@@ -5,6 +5,10 @@ const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://dharmasetu-b
 const COUNT_CACHE_KEY = 'ds_notification_unread_v1';
 const COUNT_CACHE_MS = 60 * 1000;
 export const SAFE_NOTIFICATION_ROUTES = new Set(['/payment','/profile','/katha_vault','/mantra_library','/kundli','/panchang']);
+const NOTIFICATION_ROUTE_ALIASES = Object.freeze({
+  // Panchang is rendered on Home; there is no standalone /panchang route.
+  '/panchang': '/(tabs)',
+});
 
 export async function getUnreadNotificationCount({ refresh = false } = {}) {
   if (!refresh) {
@@ -39,5 +43,6 @@ export async function markAllNotificationsRead() {
 }
 
 export function safeNotificationRoute(route) {
-  return SAFE_NOTIFICATION_ROUTES.has(route) ? route : null;
+  if (!SAFE_NOTIFICATION_ROUTES.has(route)) return null;
+  return NOTIFICATION_ROUTE_ALIASES[route] || route;
 }

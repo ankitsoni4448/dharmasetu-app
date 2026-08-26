@@ -14,6 +14,7 @@
 // ════════════════════════════════════════════════════════════════
 import { Platform, Alert, Linking } from 'react-native';
 import { Audio }                   from 'expo-av';
+import { authenticatedFetch }      from '../../utils/entitlements';
 
 const BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://dharmasetu-backend-2c65.onrender.com';
 
@@ -171,7 +172,7 @@ export async function stopAndTranscribe(recording, lang = 'hindi') {
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), 15000);
     try {
-      const res = await fetch(`${BACKEND}/voice/transcribe`, {
+      const res = await authenticatedFetch(`${BACKEND}/voice/transcribe`, {
         method:  'POST',
         body:    formData,
         headers: { 'Content-Type': 'multipart/form-data' },

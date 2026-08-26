@@ -33,14 +33,14 @@ export default function PrivacyPolicyScreen() {
         <Text style={s.body}>
           DharmaSetu collects the following information to provide you a personalized dharmic experience:{'\n\n'}
           • <Text style={s.bold}>Account Information:</Text> Phone number (for authentication via OTP), name, and language preference.{'\n'}
-          • <Text style={s.bold}>Birth Data:</Text> Date of birth, time of birth, and birth place — used exclusively for Vedic Kundli calculations on your device.{'\n'}
+          • <Text style={s.bold}>Birth Data:</Text> Date of birth, time of birth, and birth place — used to generate and restore your Vedic Kundli through DharmaSetu&apos;s secured services.{'\n'}
           • <Text style={s.bold}>Usage Data:</Text> App engagement patterns (streak counts, Japa sessions, mood selections) stored locally on your device.{'\n'}
           • <Text style={s.bold}>Device Information:</Text> Device type, OS version, and Expo push notification token (for daily dharmic reminders).
         </Text>
 
         <Text style={s.heading}>2. How We Use Your Data</Text>
         <Text style={s.body}>
-          • Vedic Kundli calculations are performed <Text style={s.bold}>on-device</Text> — your birth data never leaves your phone.{'\n'}
+          • Vedic Kundli generation uses our secured backend and astrology provider; the resulting profile may be stored so it can be restored to your account.{'\n'}
           • DharmaChat AI conversations are sent to our secure backend for processing and are not stored permanently.{'\n'}
           • Panchang data is fetched from our backend API and cached locally for offline access.{'\n'}
           • Push notification tokens are used solely for delivering dharmic reminders you have opted into.{'\n'}
@@ -49,10 +49,10 @@ export default function PrivacyPolicyScreen() {
 
         <Text style={s.heading}>3. Data Storage & Security</Text>
         <Text style={s.body}>
-          • All personal data is stored using React Native AsyncStorage on your device.{'\n'}
+          • Some session and cached app data is stored locally using device storage; account, profile, and service data may also be stored by our secured backend providers.{'\n'}
           • Backend communication uses HTTPS encryption.{'\n'}
           • Supabase Authentication secures your login session.{'\n'}
-          • We do not store your birth time or Kundli calculations on our servers.
+          • Birth profiles and generated Kundli data may be stored with your account to support restoration, subject to our security and deletion controls.
         </Text>
 
         <Text style={s.heading}>4. Your Rights</Text>
@@ -67,18 +67,19 @@ export default function PrivacyPolicyScreen() {
           DharmaSetu uses the following third-party services:{'\n\n'}
           • Supabase (Authentication and data services){'\n'}
           • Expo (Push Notifications, OTA Updates){'\n'}
-          • Google Gemini AI (DharmaChat — via our backend proxy){'\n\n'}
+          • Prokerala (authoritative astrology and Panchang calculations){'\n'}
+          • Google Gemini and Groq (DharmaChat — via our backend proxy){'\n\n'}
           Each service has its own privacy policy. We encourage you to review them.
         </Text>
 
-        <Text style={s.heading}>6. Children's Privacy</Text>
+        <Text style={s.heading}>6. Children&apos;s Privacy</Text>
         <Text style={s.body}>
           DharmaSetu is intended for users aged 13 and above. We do not knowingly collect information from children under 13.
         </Text>
 
         <Text style={s.heading}>7. Changes to This Policy</Text>
         <Text style={s.body}>
-          We may update this policy from time to time. Changes will be reflected in the "Last Updated" date above. Continued use of the app constitutes acceptance of the updated policy.
+          We may update this policy from time to time. Changes will be reflected in the &quot;Last Updated&quot; date above. Continued use of the app constitutes acceptance of the updated policy.
         </Text>
 
         <Text style={s.heading}>8. Contact Us</Text>
