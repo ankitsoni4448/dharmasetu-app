@@ -65,7 +65,7 @@ export async function registerUserToBackend(userData) {
     if (data.success) {
       console.log('[Backend] User synced:', data.isNew ? '✅ New user created' : '✅ Existing user updated');
     } else {
-      console.log('[Backend] Register response:', data.error);
+      if (__DEV__) console.warn(`[Backend] POST /users/register -> ${res.status} ${data.error || 'UNKNOWN_ERROR'}`);
     }
   } catch (err) {
     // Silent fail — never break login
@@ -158,7 +158,8 @@ export async function getUserFromBackend(phone) {
     });
 
     if (!res.ok) {
-      console.log("Backend response not OK:", res.status);
+      const data = await res.clone().json().catch(() => ({}));
+      if (__DEV__) console.warn(`[Backend] GET /user/get -> ${res.status} ${data.error || 'UNKNOWN_ERROR'}`);
       return null;
     }
 
@@ -188,7 +189,7 @@ export async function recoverPremium(phone, orderId = '') {
   try {
     const res = await fetch(`${BACKEND_URL}/payment/recover`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await authenticatedHeaders(),
       body: JSON.stringify({ phone, orderId }),
     });
     const data = await res.json();

@@ -22,24 +22,46 @@ export async function getCurrentPlan({ refresh = false } = {}) {
   return refreshEntitlement();
 }
 
+export async function getEntitlement({ refresh = false } = {}) {
+  if (!refresh) {
+    try {
+      const cached = JSON.parse(await AsyncStorage.getItem(CACHE_KEY));
+      if (cached?.effectivePlan && Date.now() - cached.updatedAt < CACHE_TTL_MS) return cached;
+    } catch {}
+  }
+  return refreshEntitlementDetails();
+}
+
 export async function refreshEntitlement() {
+  const entitlement = await refreshEntitlementDetails();
+  return entitlement.effectivePlan;
+}
+
+export async function refreshEntitlementDetails() {
   const headers = await authHeaders();
   const response = await fetch(`${BACKEND_URL}/users/me/access`, { headers });
   if (!response.ok) throw new Error(response.status === 401 ? 'Authentication required' : 'Could not refresh plan');
   const data = await response.json();
-  const plan = ['free', 'basic', 'pro'].includes(data.plan) ? data.plan : 'free';
-  await AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ plan, updatedAt: Date.now() }));
+  const plan = ['free', 'basic', 'pro'].includes(data.effectivePlan || data.plan) ? (data.effectivePlan || data.plan) : 'free';
+  const entitlement = { ...data, plan, effectivePlan: plan, updatedAt: Date.now() };
+  await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(entitlement));
   const raw = await AsyncStorage.getItem('dharmasetu_user');
   if (raw) {
     const user = JSON.parse(raw);
     await AsyncStorage.setItem('dharmasetu_user', JSON.stringify({ ...user, plan }));
   }
-  return plan;
+  return entitlement;
 }
 
 export async function authenticatedFetch(url, options = {}) {
   const headers = await authHeaders();
-  return fetch(url, { ...options, headers: { ...options.headers, ...headers } });
+  const response = await fetch(url, { ...options, headers: { ...options.headers, ...headers } });
+  if (__DEV__ && !response.ok) {
+    const endpoint = (() => { try { return new URL(url).pathname; } catch { return String(url); } })();
+    const payload = await response.clone().json().catch(() => ({}));
+    console.warn(`[Backend] ${options.method || 'GET'} ${endpoint} -> ${response.status} ${payload.error || 'UNKNOWN_ERROR'}`);
+  }
+  return response;
 }
 
 export function isPaidPlan(plan) {
