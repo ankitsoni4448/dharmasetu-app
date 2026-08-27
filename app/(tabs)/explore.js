@@ -71,6 +71,7 @@ const Sec = {
 async function callBackendAI(messages, userProfile, mode, phone) {
   const controller = new AbortController();
   // FIX: 25s timeout instead of 45s — gives faster failure feedback
+  // Backend budget: 12s primary + 10s fallback + 8s continuation, plus DB work.
   const timeout = setTimeout(() => controller.abort(), 45000);
 
   try {
@@ -104,6 +105,8 @@ async function callBackendAI(messages, userProfile, mode, phone) {
         'AUTH_REQUIRED', 'PROFILE_NOT_FOUND', 'FEATURE_DISABLED', 'FORBIDDEN',
         'QUOTA_INFRASTRUCTURE_UNAVAILABLE', 'AI_PROVIDER_CONFIGURATION_ERROR',
         'AI_PROVIDER_UNAVAILABLE', 'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT', 'AI_INCOMPLETE_RESPONSE', 'SERVER_ERROR',
+        'KUNDLI_CONTEXT_NOT_READY', 'PANCHANG_LOCATION_REQUIRED', 'PANCHANG_LOCATION_INVALID',
+        'PANCHANG_TEMPORARILY_UNAVAILABLE',
       ]);
       throw new Error(knownCodes.has(err.error) ? err.error : 'SERVER_ERROR');
     }
@@ -122,6 +125,8 @@ async function callBackendAI(messages, userProfile, mode, phone) {
       'QUESTION_LIMIT_REACHED', 'RATE_LIMIT', 'QUOTA_INFRASTRUCTURE_UNAVAILABLE',
       'AI_PROVIDER_CONFIGURATION_ERROR', 'AI_PROVIDER_UNAVAILABLE',
       'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT', 'AI_INCOMPLETE_RESPONSE', 'SERVER_ERROR',
+      'KUNDLI_CONTEXT_NOT_READY', 'PANCHANG_LOCATION_REQUIRED', 'PANCHANG_LOCATION_INVALID',
+      'PANCHANG_TEMPORARILY_UNAVAILABLE',
     ]);
     throw safeCodes.has(e.message) ? e : new Error('SERVER_ERROR');
   }
@@ -565,23 +570,12 @@ export default function DharmaChatScreen() {
     ]).start();
   };
 
-  // ── STREAM TEXT (word by word) ────────────────────────────────
+  // Render the complete server response atomically. Artificial word-by-word
+  // playback made complete answers look truncated and could stop on unmount.
   const streamText = useCallback((fullText, id) => {
-    const words = fullText.split(' ');
-    let built = '', i = 0;
-    const iv = setInterval(() => {
-      // FIX: stop streaming if unmounted
-      if (!isMountedRef.current) { clearInterval(iv); return; }
-      if (i >= words.length) {
-        clearInterval(iv);
-        setMsgs(p => p.map(m => m.id === id ? { ...m, streaming: false } : m));
-        scrollDown();
-        return;
-      }
-      built += (i === 0 ? '' : ' ') + words[i++];
-      setMsgs(p => p.map(m => m.id === id ? { ...m, body: built } : m));
-      if (i % 8 === 0) scrollDown();
-    }, 22);
+    if (!isMountedRef.current) return;
+    setMsgs(p => p.map(m => m.id === id ? { ...m, body: fullText, streaming: false } : m));
+    scrollDown();
   }, [scrollDown]);
 
   // ── ERROR MESSAGE HELPER ─────────────────────────────────────
@@ -621,6 +615,11 @@ export default function DharmaChatScreen() {
     }
     if (err.message === 'AI_INCOMPLETE_RESPONSE') {
       return lang === 'hindi' ? 'पूरा उत्तर तैयार नहीं हो सका। कृपया थोड़ी देर बाद फिर प्रयास करें।' : 'A complete answer could not be prepared. Please try again shortly.';
+    }
+    if (err.message === 'KUNDLI_CONTEXT_NOT_READY') {
+      return lang === 'hindi'
+        ? 'आपकी प्रमाणित कुंडली अभी तैयार नहीं है। कुंडली तैयार होने के बाद व्यक्तिगत ज्योतिष मार्गदर्शन उपलब्ध होगा।'
+        : 'Your verified Kundli is not ready yet. Personal Jyotish guidance will be available after it is prepared.';
     }
     if (err.message === 'AI_SERVICE_ERROR') {
       return lang === 'hindi' ? 'सर्वर में अस्थायी समस्या है। कृपया दोबारा प्रयास करें।' : 'The server encountered a temporary problem. Please try again.';
@@ -728,7 +727,7 @@ export default function DharmaChatScreen() {
         'FEATURE_DISABLED', 'RATE_LIMIT', 'FORBIDDEN',
         'QUOTA_INFRASTRUCTURE_UNAVAILABLE', 'AI_PROVIDER_CONFIGURATION_ERROR',
         'AI_PROVIDER_UNAVAILABLE', 'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT', 'AI_INCOMPLETE_RESPONSE',
-        'NETWORK_ERROR', 'SERVER_ERROR',
+        'NETWORK_ERROR', 'SERVER_ERROR', 'KUNDLI_CONTEXT_NOT_READY',
         'PANCHANG_LOCATION_REQUIRED', 'PANCHANG_LOCATION_INVALID', 'PANCHANG_TEMPORARILY_UNAVAILABLE',
       ]);
       if (!controlledCodes.has(err.message)) {
