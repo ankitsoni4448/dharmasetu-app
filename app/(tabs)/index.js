@@ -76,7 +76,7 @@ const DAILY_SHLOKS = [
 const QUICK_ACTIONS = [
   { id: 'chat',     emoji: '💬', hi: 'DharmaChat',    en: 'DharmaChat',    route: '/(tabs)/explore',    color: '#E8620A' },
   { id: 'katha',    emoji: '📖', hi: 'कथा वॉल्ट',   en: 'Katha Vault',   route: '/katha_vault',       color: '#C9830A' },
-  { id: 'payment',  emoji: '⭐', hi: 'Premium',       en: 'Premium',       route: '/payment',           color: '#27AE60' },
+  { id: 'panchang', emoji: '📅', hi: 'पंचांग',        en: 'Panchang',      route: '/panchang',          color: '#27AE60' },
   { id: 'kundli',   emoji: '🔯', hi: 'कुंडली',       en: 'Kundli',        route: '/kundli',            color: '#6B21A8' },
   { id: 'mantra',   emoji: '📿', hi: 'मंत्र',         en: 'Mantras',       route: '/mantra_library',    color: '#3498DB' },
   { id: 'factcheck',emoji: '🛡️',hi: 'Fact Check',   en: 'Fact Check',    action: 'factcheck',         color: '#9B59B6' },
@@ -279,11 +279,9 @@ function PanchangCard({ lang }) {
       <View style={s.panGrid}>
         {[
           { lbl: isH ? 'तिथि' : 'Tithi',         val: safeData.tithi },
+          { lbl: isH ? 'पक्ष' : 'Paksha',          val: safeData.paksha },
           { lbl: isH ? 'नक्षत्र' : 'Nakshatra',   val: safeData.nakshatra },
           { lbl: isH ? 'वार' : 'Weekday',          val: safeData.weekday },
-          { lbl: isH ? 'राहु काल' : 'Rahu Kaal',  val: safeData.rahuKalam },
-          { lbl: isH ? 'अभिजित' : 'Abhijit',      val: safeData.abhijitMuhurta },
-          { lbl: isH ? 'पक्ष' : 'Paksha',          val: safeData.paksha },
         ].map(({ lbl, val }) => (
           <View key={lbl} style={s.panCell}>
             <Text style={s.panCellLbl}>{lbl}</Text>
@@ -303,6 +301,10 @@ function PanchangCard({ lang }) {
           <Text style={s.sunVal}>{safeData.sunset}</Text>
         </View>
       </View>
+
+      <TouchableOpacity style={s.askShlokBtn} onPress={() => router.push('/panchang')} activeOpacity={0.85}>
+        <Text style={s.askShlokBtnTxt}>{isH ? 'पूरा पंचांग देखें →' : 'View Full Panchang →'}</Text>
+      </TouchableOpacity>
 
     </View>
   );

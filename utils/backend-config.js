@@ -47,6 +47,9 @@ export const BACKEND_CONFIG = {
     PAYMENT_UPI_CREATE: '/payment/upi/create',
     PAYMENT_CONFIRM: '/payment/confirm',
     PANCHANG_TODAY: '/api/panchang/today',
+    PANCHANG_DAY: '/api/panchang/day',
+    PANCHANG_MONTH: '/api/panchang/month',
+    PANCHANG_YEAR: '/api/panchang/year',
   },
 };
 
