@@ -19,7 +19,6 @@ import * as Location from 'expo-location';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { TextInput } from 'react-native';
 import {
   Alert, Animated, ScrollView, Share, StyleSheet,
   Text, TouchableOpacity, Vibration, View, ActivityIndicator,
@@ -30,13 +29,23 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   FESTIVALS_2025_2026,
   EKADASHI_2025_2026,
-} from '../hinduCalendar';
+} from '../../data/hinduCalendar';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getBackendUrl, BACKEND_CONFIG } from '../../utils/backend-config';
 import NotificationBell from '../../components/app/NotificationBell';
 
 const API_URL = getBackendUrl(BACKEND_CONFIG.ENDPOINTS.PANCHANG_TODAY);
+
+// HOME_PANCHANG_PRESENTATION_HELPERS_START
+function formatPanchangClock(value, timezone) {
+  if (!value) return '—';
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return '—';
+  return new Intl.DateTimeFormat('en-IN', { timeZone: timezone || undefined, hour: 'numeric', minute: '2-digit', hour12: true })
+    .format(instant).toUpperCase();
+}
+// HOME_PANCHANG_PRESENTATION_HELPERS_END
 
 // ── DAILY SHLOKS (30 hardcoded) ──────────────────────────────────
 const DAILY_SHLOKS = [
@@ -108,14 +117,6 @@ const MOODS = [
     mantra: 'ॐ ऐं सरस्वत्यै नमः', shlok: 'कर्मण्येवाधिकारस्ते — BG 2.47', shlokEn: 'Focus on action, not result. This is peak performance.',
     breathHi: 'भ्रामरी: कान बंद करें, गुनगुनाएं 5 बार', breathEn: 'Bhramari: Close ears with thumbs, hum deeply 5 times',
     actHi: '20 मिनट का timer। बस एक काम।', actEn: 'Set 20-min timer. One task only.' },
-];
-
-const JAPA_MANTRAS = [
-  { m: 'ॐ नमः शिवाय',              short: 'Shiva',  color: '#6B21A8' },
-  { m: 'ॐ नमो भगवते वासुदेवाय',    short: 'Vishnu', color: '#3498DB' },
-  { m: 'ॐ श्री राम जय राम जय जय राम', short: 'Ram', color: '#E8620A' },
-  { m: 'ॐ गं गणपतये नमः',          short: 'Ganesh', color: '#F39C12' },
-  { m: 'हरे कृष्ण हरे राम',         short: 'Krishna',color: '#27AE60' },
 ];
 
 // ════════════════════════════════════════════════════════════════
@@ -294,11 +295,11 @@ function PanchangCard({ lang }) {
       <View style={s.sunRow}>
         <View style={s.sunItem}>
           <Text style={s.sunLbl}>🌅 {isH ? 'सूर्योदय' : 'Sunrise'}</Text>
-          <Text style={s.sunVal}>{safeData.sunrise}</Text>
+          <Text style={s.sunVal}>{formatPanchangClock(safeData.sunrise, safeData.timezone)}</Text>
         </View>
         <View style={s.sunItem}>
           <Text style={s.sunLbl}>🌇 {isH ? 'सूर्यास्त' : 'Sunset'}</Text>
-          <Text style={s.sunVal}>{safeData.sunset}</Text>
+          <Text style={s.sunVal}>{formatPanchangClock(safeData.sunset, safeData.timezone)}</Text>
         </View>
       </View>
 
@@ -467,125 +468,64 @@ function MoodMantra({ lang, onAsk, onMoodChange }) {
   );
 }
 
-// ── JAPA COUNTER ────────────────────────────────────────────────
-function JapaCounter({ lang }) {
-  const [count, setCount]      = useState(0);
-  const [target, setTarget]    = useState(108);
+// ── JAPA PREVIEW CARD ────────────────────────────────────────────
+function JapaPreviewCard({ lang }) {
   const [todayTotal, setToday] = useState(0);
-  const [mantraIdx, setMIdx]   = useState(0);
-  const scaleAnim = useRef(new Animated.Value(1)).current;
   const isH = lang === 'hindi';
 
   useEffect(() => {
-    AsyncStorage.getItem('current_japa_count').then(v => {
-      if (v) setCount(parseInt(v, 10));
-    });
-    AsyncStorage.getItem('current_japa_target').then(v => {
-      if (v) setTarget(parseInt(v, 10));
-    });
-    AsyncStorage.getItem(`japa_${new Date().toDateString()}`).then(v => {
-      if (v) setToday(parseInt(v, 10) || 0);
-    });
-  }, []);
-
-  const tap = () => {
-    Vibration.vibrate(8);
-    Animated.sequence([
-      Animated.timing(scaleAnim, { toValue:0.88, duration:60, useNativeDriver:true }),
-      Animated.spring(scaleAnim, { toValue:1, friction:3, tension:200, useNativeDriver:true }),
-    ]).start();
-    const nc = count + 1;
-    const nt = todayTotal + 1;
-    setCount(nc);
-    setToday(nt);
-    AsyncStorage.setItem('current_japa_count', String(nc));
-    AsyncStorage.setItem(`japa_${new Date().toDateString()}`, String(nt));
-    if (nc === target) {
-      Vibration.vibrate([0, 100, 100, 100]);
-      Alert.alert('🕉 जय!', isH ? `${target} जप पूर्ण! आज कुल: ${nt}` : `${target} japa complete! Today: ${nt}`);
+    let active = true;
+    async function load() {
+      try {
+        const v = await AsyncStorage.getItem(`japa_${new Date().toDateString()}`);
+        if (active) setToday(parseInt(v, 10) || 0);
+      } catch {}
     }
-  };
-
-  // FIX: reset persists to AsyncStorage
-  const resetCount = () => {
-    setCount(0);
-    AsyncStorage.setItem('current_japa_count', '0');
-  };
-
-  // FIX: mantra change also persists reset
-  const changeMantra = (i) => {
-    setMIdx(i);
-    setCount(0);
-    AsyncStorage.setItem('current_japa_count', '0');
-  };
-
-  // FIX: target change persists both reset and new target
-  const changeTarget = (t) => {
-    setTarget(t);
-    setCount(0);
-    AsyncStorage.setItem('current_japa_count', '0');
-    AsyncStorage.setItem('current_japa_target', String(t));
-  };
-
-  const pct = Math.min(100, Math.round((count / target) * 100));
-  const m = JAPA_MANTRAS[mantraIdx];
+    load();
+    const interval = setInterval(load, 2000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   return (
     <View style={s.card}>
-      <View style={{ flexDirection:'row', justifyContent:'space-between', marginBottom:12 }}>
-        <Text style={s.cardTitle}>📿 {isH ? 'जप काउंटर' : 'Japa Counter'}</Text>
-        <Text style={{ fontSize:11, color:'#C9830A', fontWeight:'600' }}>
-          {isH ? `आज: ${todayTotal} जप` : `Today: ${todayTotal}`}
-        </Text>
-      </View>
-
-      {/* Mantra selector */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom:10 }}>
-        <View style={{ flexDirection:'row', gap:8 }}>
-          {JAPA_MANTRAS.map((jm, i) => (
-            <TouchableOpacity key={i}
-              style={[s.japaChip, mantraIdx === i && { backgroundColor: jm.color + '20', borderColor: jm.color }]}
-              onPress={() => changeMantra(i)}>
-              <Text style={[s.japaChipTxt, mantraIdx === i && { color: jm.color }]}>{jm.short}</Text>
-            </TouchableOpacity>
-          ))}
+      <View style={{ flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
+        <Text style={s.cardTitle}>📿 {isH ? 'दैनिक जप साधना' : 'Daily Japa Chanting'}</Text>
+        <View style={{ backgroundColor: 'rgba(232,98,10,0.12)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: 'rgba(232,98,10,0.25)' }}>
+          <Text style={{ fontSize:11, color:'#FFB84D', fontWeight:'700' }}>
+            {isH ? `आज कुल: ${todayTotal} जप` : `Today: ${todayTotal} Chants`}
+          </Text>
         </View>
-      </ScrollView>
-
-      <Text style={[s.japaMantraTxt, { color: m.color }]}>{m.m}</Text>
-
-      {/* Progress bar */}
-      <View style={s.japaProgBar}>
-        <View style={[s.japaProgFill, { width:`${pct}%`, backgroundColor: m.color }]} />
-      </View>
-      <Text style={s.japaProgLbl}>{count} / {target} ({pct}%)</Text>
-
-      {/* Big tap button */}
-      <View style={{ alignItems:'center', marginVertical:14 }}>
-        <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-          <TouchableOpacity style={[s.japaMalaBtn, { borderColor: m.color + '60', shadowColor: m.color }]}
-            onPress={tap} activeOpacity={0.85}>
-            <Text style={{ fontSize:38 }}>🕉</Text>
-            <Text style={[s.japaBtnCount, { color: m.color }]}>{count}</Text>
-            <Text style={s.japaBtnSub}>{isH ? 'टैप करें' : 'Tap'}</Text>
-          </TouchableOpacity>
-        </Animated.View>
       </View>
 
-      {/* Targets + Reset */}
-      <View style={{ flexDirection:'row', gap:8, justifyContent:'center' }}>
-        {[27, 54, 108, 1008].map(t => (
-          <TouchableOpacity key={t}
-            style={[s.japaTargBtn, target === t && { backgroundColor: m.color + '20', borderColor: m.color }]}
-            onPress={() => changeTarget(t)}>
-            <Text style={[s.japaTargTxt, target === t && { color: m.color }]}>{t}</Text>
-          </TouchableOpacity>
-        ))}
-        {/* FIX: reset button now calls resetCount which persists to AsyncStorage */}
-        <TouchableOpacity style={[s.japaTargBtn, { borderColor:'rgba(231,76,60,0.4)' }]} onPress={resetCount}>
-          <Text style={{ fontSize:14, color:'#E74C3C' }}>↺</Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={{ fontSize:13, color:'rgba(253,246,237,0.7)', lineHeight:20, marginBottom:14 }}>
+        {isH 
+          ? 'मन की शांति, एकाग्रता और दिव्य ऊर्जा के लिए आज का मंत्र जप साधना संकल्प पूर्ण करें।' 
+          : 'Chant daily to cultivate mental peace, clarity, and deep spiritual connection.'}
+      </Text>
+
+      <TouchableOpacity 
+        style={{ 
+          backgroundColor: '#E8620A', 
+          borderRadius: 12, 
+          paddingVertical: 12, 
+          alignItems: 'center',
+          borderWidth: 1,
+          borderColor: '#FF9933',
+          shadowColor: '#E8620A',
+          shadowOpacity: 0.3,
+          shadowRadius: 5,
+          elevation: 3
+        }}
+        onPress={() => router.push('/mantra_library')}
+        activeOpacity={0.85}
+      >
+        <Text style={{ color: '#fff', fontWeight: '800', fontSize: 13, letterSpacing: 0.5 }}>
+          {isH ? 'जप माला केंद्र में जाएं →' : 'Go to Mantra Hub →'}
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -876,16 +816,17 @@ export default function HomeScreen() {
         </View>
         <View style={{ flexDirection:'row', gap:8 }}>
           <NotificationBell language={lang} />
-          {[{ id:'hindi', l:'हिं' }, { id:'english', l:'EN' }].map(({ id, l }) => (
-            <TouchableOpacity key={id}
-              style={[s.langBtn, lang === id && s.langBtnOn]}
-              onPress={async () => {
-                setLang(id);
-                await AsyncStorage.setItem('user_language', id);
-              }}>
-              <Text style={[s.langBtnTxt, lang === id && s.langBtnTxtOn]}>{l}</Text>
-            </TouchableOpacity>
-          ))}
+          <TouchableOpacity
+            style={[s.langBtn, s.langBtnOn]}
+            accessibilityRole="button"
+            accessibilityLabel={isH ? 'Switch to English' : 'हिंदी में बदलें'}
+            onPress={async () => {
+              const next = isH ? 'english' : 'hindi';
+              setLang(next);
+              await AsyncStorage.setItem('user_language', next);
+            }}>
+            <Text style={[s.langBtnTxt, s.langBtnTxtOn]}>{isH ? 'EN' : 'हिं'}</Text>
+          </TouchableOpacity>
         </View>
       </Animated.View>
 
@@ -940,7 +881,7 @@ export default function HomeScreen() {
           }}
         />
 
-        <JapaCounter lang={lang} />
+        <JapaPreviewCard lang={lang} />
 
         {/* DharmaChat CTA */}
         <TouchableOpacity style={s.chatCta} onPress={() => navigateToDharmaChat()} activeOpacity={0.88}>
@@ -975,7 +916,7 @@ const s = StyleSheet.create({
   langBtnTxt:  { fontSize:12, color:'rgba(253,246,237,0.4)', fontWeight:'700' },
   langBtnTxtOn:{ color:'#F4A261' },
 
-  card:        { backgroundColor:'#0F0600', borderRadius:18, padding:16, marginBottom:13, borderWidth:1, borderColor:'rgba(240,165,0,0.15)', elevation:3 },
+  card:        { backgroundColor:'#0F0600', borderRadius:18, padding:16, marginBottom:13, borderWidth:1, borderColor:'rgba(240,165,0,0.15)', shadowColor: '#E8620A', shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation:3 },
   cardTitle:   { fontSize:14, fontWeight:'800', color:'#F4A261' },
   shareSmBtn:  { padding:6, borderRadius:8, backgroundColor:'rgba(255,255,255,0.05)', borderWidth:1, borderColor:'rgba(240,165,0,0.1)' },
 
@@ -984,25 +925,25 @@ const s = StyleSheet.create({
   aiLoadingTxt:  { fontSize:12, color:'rgba(52,152,219,0.8)', flex:1 },
   aiInsightBox:  { backgroundColor:'rgba(52,152,219,0.08)', borderRadius:12, padding:12, borderWidth:1, borderColor:'rgba(52,152,219,0.3)', marginBottom:12 },
   aiInsightTitle:{ fontSize:13, fontWeight:'800', color:'#3498DB', marginBottom:6 },
-  aiInsightPoint:{ fontSize:12, color:'rgba(253,246,237,0.8)', marginBottom:4 },
+  aiInsightPoint:{ fontSize:12, color:'rgba(253,246,237,0.85)', marginBottom:4 },
 
   // Panchang
   panHdr:      { flexDirection:'row', justifyContent:'space-between', alignItems:'flex-start', marginBottom:14 },
   panTitle:    { fontSize:14, fontWeight:'800', color:'#F4A261' },
-  panSamvat:   { fontSize:10, color:'rgba(253,246,237,0.35)', marginTop:2 },
+  panSamvat:   { fontSize:10, color:'rgba(253,246,237,0.85)', marginTop:2 },
   auPill:      { paddingHorizontal:10, paddingVertical:5, borderRadius:10, borderWidth:1 },
   auTxt:       { fontSize:11, fontWeight:'700' },
   panGrid:     { flexDirection:'row', flexWrap:'wrap', gap:8, marginBottom:12 },
   panCell:     { width:'30%', backgroundColor:'rgba(255,255,255,0.04)', borderRadius:10, padding:9, alignItems:'center', borderWidth:1, borderColor:'rgba(240,165,0,0.08)' },
-  panCellLbl:  { fontSize:9, color:'rgba(253,246,237,0.35)', fontWeight:'600', marginBottom:2 },
+  panCellLbl:  { fontSize:9, color:'rgba(253,246,237,0.8)', fontWeight:'600', marginBottom:2 },
   panCellVal:  { fontSize:11, color:'#F4A261', fontWeight:'700', textAlign:'center' },
   sunRow:      { flexDirection:'row', backgroundColor:'rgba(255,255,255,0.03)', borderRadius:12, padding:10, marginBottom:10 },
   sunItem:     { flex:1, alignItems:'center' },
-  sunLbl:      { fontSize:9, color:'rgba(253,246,237,0.3)', marginBottom:2 },
+  sunLbl:      { fontSize:9, color:'rgba(253,246,237,0.8)', marginBottom:2 },
   sunVal:      { fontSize:11, fontWeight:'700', color:'#FDF6ED', textAlign:'center' },
   deityBox:    { backgroundColor:'rgba(201,131,10,0.08)', borderRadius:10, padding:10, borderWidth:1, borderColor:'rgba(201,131,10,0.2)', marginBottom:8 },
   deityTxt:    { fontSize:12, color:'#C9830A', textAlign:'center', fontWeight:'600', marginBottom:4 },
-  deityMantra: { fontSize:13, color:'rgba(253,220,150,0.7)', textAlign:'center', fontWeight:'700' },
+  deityMantra: { fontSize:13, color:'rgba(253,220,150,0.92)', textAlign:'center', fontWeight:'700' },
   evtBox:      { borderRadius:8, padding:8, borderWidth:1, backgroundColor:'rgba(255,255,255,0.03)' },
   evtTxt:      { fontSize:12, fontWeight:'600' },
 
@@ -1011,7 +952,7 @@ const s = StyleSheet.create({
   shlokSan:       { fontSize:16, color:'#D4A8FF', textAlign:'center', lineHeight:30, fontWeight:'600' },
   shlokRefBox:    { alignSelf:'center', backgroundColor:'rgba(232,98,10,0.12)', borderRadius:8, paddingHorizontal:12, paddingVertical:4, marginBottom:8 },
   shlokRef:       { fontSize:11, color:'#E8620A', fontWeight:'700' },
-  shlokMeaning:   { fontSize:13, color:'rgba(253,246,237,0.75)', lineHeight:22, marginBottom:12, textAlign:'center' },
+  shlokMeaning:   { fontSize:13, color:'rgba(253,246,237,0.92)', lineHeight:22, marginBottom:12, textAlign:'center' },
   askShlokBtn:    { backgroundColor:'rgba(232,98,10,0.15)', borderRadius:12, padding:12, alignItems:'center', borderWidth:1, borderColor:'rgba(232,98,10,0.3)' },
   askShlokBtnTxt: { fontSize:12, color:'#F4A261', fontWeight:'700' },
 
@@ -1022,15 +963,15 @@ const s = StyleSheet.create({
   festDays:     { fontSize:11, fontWeight:'800' },
   festType:     { fontSize:16, marginBottom:3 },
   festName:     { fontSize:10, color:'#FDF6ED', fontWeight:'600', textAlign:'center', marginBottom:2 },
-  festDeity:    { fontSize:9, color:'rgba(253,246,237,0.3)', textAlign:'center' },
+  festDeity:    { fontSize:9, color:'rgba(253,246,237,0.82)', textAlign:'center' },
 
   // Mood
   moodGrid:     { flexDirection:'row', flexWrap:'wrap', gap:8, marginTop:12 },
   moodBtn:      { paddingHorizontal:12, paddingVertical:9, borderRadius:12, borderWidth:1, borderColor:'rgba(200,130,40,0.2)', backgroundColor:'rgba(255,255,255,0.03)', alignItems:'center', minWidth:90 },
-  moodLbl:      { fontSize:11, color:'rgba(253,246,237,0.45)', fontWeight:'600', textAlign:'center' },
+  moodLbl:      { fontSize:11, color:'rgba(253,246,237,0.88)', fontWeight:'600', textAlign:'center' },
   moodResult:   { marginTop:14, gap:10 },
   moodMantraBox:{ backgroundColor:'rgba(255,255,255,0.04)', borderRadius:12, padding:14, borderWidth:1 },
-  moodMantraLbl:{ fontSize:10, color:'rgba(253,246,237,0.35)', fontWeight:'700', marginBottom:6 },
+  moodMantraLbl:{ fontSize:10, color:'rgba(253,246,237,0.82)', fontWeight:'700', marginBottom:6 },
   moodMantra:   { fontSize:17, fontWeight:'800', textAlign:'center', lineHeight:28 },
   moodShlokBox: { backgroundColor:'rgba(107,33,168,0.1)', borderRadius:12, padding:12, borderWidth:1, borderColor:'rgba(107,33,168,0.2)' },
   moodShlokTxt: { fontSize:13, color:'rgba(212,168,255,0.85)', lineHeight:21 },
@@ -1039,39 +980,39 @@ const s = StyleSheet.create({
   moodBreathTxt:{ fontSize:13, color:'rgba(100,220,150,0.85)', lineHeight:20 },
   moodActionBox:{ backgroundColor:'rgba(232,98,10,0.08)', borderRadius:12, padding:12, borderWidth:1, borderColor:'rgba(232,98,10,0.2)' },
   moodActionLbl:{ fontSize:10, color:'#E8620A', fontWeight:'700', marginBottom:5 },
-  moodActionTxt:{ fontSize:13, color:'rgba(253,246,237,0.8)', lineHeight:20 },
+  moodActionTxt:{ fontSize:13, color:'rgba(253,246,237,0.85)', lineHeight:20 },
   moodAskBtn:   { borderRadius:12, paddingVertical:12, alignItems:'center' },
   moodAskBtnTxt:{ color:'#fff', fontWeight:'700', fontSize:13 },
 
   // Japa
   japaChip:     { paddingHorizontal:12, paddingVertical:7, borderRadius:20, borderWidth:1, borderColor:'rgba(200,130,40,0.2)' },
-  japaChipTxt:  { fontSize:12, color:'rgba(253,246,237,0.4)', fontWeight:'600' },
+  japaChipTxt:  { fontSize:12, color:'rgba(253,246,237,0.82)', fontWeight:'600' },
   japaMantraTxt:{ fontSize:14, textAlign:'center', fontWeight:'800', marginBottom:10, lineHeight:24 },
   japaProgBar:  { height:6, backgroundColor:'rgba(255,255,255,0.07)', borderRadius:3, overflow:'hidden', marginBottom:4 },
   japaProgFill: { height:6, borderRadius:3 },
-  japaProgLbl:  { fontSize:11, color:'rgba(253,246,237,0.35)', textAlign:'center', marginBottom:4 },
-  japaMalaBtn:  { width:130, height:130, borderRadius:65, backgroundColor:'rgba(107,33,168,0.25)', alignItems:'center', justifyContent:'center', borderWidth:3, elevation:8, shadowOpacity:0.4, shadowRadius:10, shadowOffset:{ width:0, height:4 } },
+  japaProgLbl:  { fontSize:11, color:'rgba(253,246,237,0.82)', textAlign:'center', marginBottom:4 },
+  japaMalaBtn:  { width:130, height:130, borderRadius:65, backgroundColor:'rgba(107,33,168,0.25)', alignItems: 'center', justifyContent:'center', borderWidth:3, elevation:8, shadowOpacity:0.4, shadowRadius:10, shadowOffset:{ width:0, height:4 } },
   japaBtnCount: { fontSize:28, fontWeight:'800' },
-  japaBtnSub:   { fontSize:11, color:'rgba(253,246,237,0.35)', marginTop:2 },
+  japaBtnSub:   { fontSize:11, color:'rgba(253,246,237,0.82)', marginTop:2 },
   japaTargBtn:  { paddingHorizontal:13, paddingVertical:8, borderRadius:10, borderWidth:1, borderColor:'rgba(200,130,40,0.2)' },
-  japaTargTxt:  { fontSize:12, color:'rgba(253,246,237,0.4)', fontWeight:'700' },
+  japaTargTxt:  { fontSize:12, color:'rgba(253,246,237,0.82)', fontWeight:'700' },
 
   // Streak stats
   statBox:  { flex:1, backgroundColor:'rgba(255,255,255,0.04)', borderRadius:12, padding:12, alignItems:'center', borderWidth:1, borderColor:'rgba(240,165,0,0.08)' },
   statVal:  { fontSize:20, fontWeight:'800', marginBottom:3 },
-  statLbl:  { fontSize:10, color:'rgba(253,246,237,0.35)', textAlign:'center' },
+  statLbl:  { fontSize:10, color:'rgba(253,246,237,0.82)', textAlign:'center' },
 
   // Quick Actions
   qaGrid:   { flexDirection:'row', flexWrap:'wrap', gap:8, marginTop:12 },
   qaBtn:    { width:'30%', backgroundColor:'rgba(255,255,255,0.03)', borderRadius:14, padding:12, alignItems:'center', borderWidth:1 },
   qaIconBox:{ width:48, height:48, borderRadius:13, alignItems:'center', justifyContent:'center', marginBottom:7 },
-  qaLbl:    { fontSize:11, color:'rgba(253,246,237,0.65)', fontWeight:'600', textAlign:'center' },
+  qaLbl:    { fontSize:11, color:'rgba(253,246,237,0.92)', fontWeight:'600', textAlign:'center' },
 
   // CTA
-  chatCta:  { backgroundColor:'#160800', borderRadius:18, padding:16, marginBottom:13, borderWidth:1.5, borderColor:'rgba(232,98,10,0.35)', elevation:4 },
+  chatCta:  { backgroundColor:'#160800', borderRadius:18, padding:16, marginBottom:13, borderWidth:1.5, borderColor:'rgba(232,98,10,0.35)', shadowColor:'#E8620A', shadowOpacity:0.18, shadowRadius:8, shadowOffset:{ width:0, height:4 }, elevation:4 },
   ctaTitle: { fontSize:15, fontWeight:'800', color:'#F4A261' },
-  ctaSub:   { fontSize:12, color:'rgba(253,246,237,0.45)', marginTop:3 },
+  ctaSub:   { fontSize:12, color:'rgba(253,246,237,0.82)', marginTop:3 },
 
   // Footer
-  footer:   { textAlign:'center', color:'rgba(240,165,0,0.3)', fontSize:12, marginTop:8 },
+  footer:   { textAlign:'center', color:'rgba(240,165,0,0.75)', fontSize:12, marginTop:8 },
 });

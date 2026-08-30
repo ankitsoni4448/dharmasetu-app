@@ -13,6 +13,10 @@ const helperSource = screen.match(/\/\/ PANCHANG_CONTRACT_HELPERS_START([\s\S]*?
 assert.ok(helperSource, 'Panchang contract helpers must be present');
 const contracts = {};
 vm.runInNewContext(`${helperSource}; this.normalizeMonthData = normalizeMonthData; this.normalizeYearData = normalizeYearData; this.daysInMonth = daysInMonth; this.isValidDailyData = isValidDailyData; this.dayCacheKey = dayCacheKey; this.getCachedDay = getCachedDay; this.setCachedDay = setCachedDay; this.MAX_DAY_CACHE_SIZE = MAX_DAY_CACHE_SIZE;`, contracts);
+const homeHelperSource = home.match(/\/\/ HOME_PANCHANG_PRESENTATION_HELPERS_START([\s\S]*?)\/\/ HOME_PANCHANG_PRESENTATION_HELPERS_END/)?.[1];
+assert.ok(homeHelperSource, 'Home Panchang presentation helpers must be present');
+const homeContracts = {};
+vm.runInNewContext(`${homeHelperSource}; this.formatPanchangClock = formatPanchangClock;`, homeContracts);
 
 const productionMonthFixture = { available: true, year: 2026, month: 8, days: [
   { date: '2026-08-09', available: true, tithi: 'Ekadashi', events: [{ name: 'Ekadashi', providerDerived: true }] },
@@ -76,9 +80,33 @@ test('unknown array values are normalized before Month and Year map operations',
 });
 
 test('Daily Panchang renders only after full response validation', () => {
-  assert.match(screen, /function Daily\(\{ data \}\) \{ if \(!isValidDailyData\(data\)\) return null/);
+  assert.match(screen, /function Daily\(\{ data, language \}\) \{ if \(!isValidDailyData\(data\)\) return null/);
   assert.equal(contracts.isValidDailyData({}), false);
-  for (const field of ['modernDate', 'traditionalDate', 'sunMoon', 'muhurta', 'avoidPeriods', 'metadata']) assert.match(screen, new RegExp(`data\\.${field}`));
+  for (const field of ['modernDate', 'traditionalDate', 'sunMoon', 'muhurta', 'avoidPeriods']) assert.match(screen, new RegExp(`data\\.${field}`));
+  assert.match(screen, /value\?\.metadata\?\.provider/);
+});
+
+test('Home formats authoritative sunrise and sunset as location-local clock times', () => {
+  assert.equal(homeContracts.formatPanchangClock('2026-08-30T06:00:14+05:30', 'Asia/Kolkata'), '6:00 AM');
+  assert.equal(homeContracts.formatPanchangClock('2026-08-30T18:35:38+05:30', 'Asia/Kolkata'), '6:35 PM');
+  assert.equal(homeContracts.formatPanchangClock('2026-08-30T06:00:14+05:30', 'UTC'), '12:30 AM');
+  assert.match(home, /formatPanchangClock\(safeData\.sunrise, safeData\.timezone\)/);
+  assert.match(home, /formatPanchangClock\(safeData\.sunset, safeData\.timezone\)/);
+});
+
+test('Daily hides technical provenance and uses natural empty states', () => {
+  assert.doesNotMatch(screen, /Source: \{data\.metadata\.provider\}/);
+  assert.doesNotMatch(screen, /No provider-supported event was returned/);
+  assert.match(screen, /No major verified vrat or festival is listed for this date/);
+  assert.match(screen, /आज कोई प्रमुख व्रत या पर्व उपलब्ध नहीं है/);
+});
+
+test('Daily omits unavailable individual period rows and uses concise section empty states', () => {
+  assert.match(screen, /\.filter\(\(\[, value\]\) => hasPeriod\(value\)\)/);
+  assert.match(screen, /No verified auspicious period is listed for this date/);
+  assert.match(screen, /No verified caution period is listed for this date/);
+  assert.doesNotMatch(screen, /<Row label="Abhijit Muhurta"/);
+  assert.doesNotMatch(screen, /<Row label="Rahu Kalam"/);
 });
 
 test('Month date tap still opens the selected Daily Panchang', () => {
