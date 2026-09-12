@@ -4,6 +4,9 @@ import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { backendFetch, BACKEND_CONFIG } from '../utils/backend-config';
+import phoneCache from '../utils/panchangPhoneCache';
+
+const { getCachedPanchang, setCachedPanchang, localDateInTimezone: phoneLocalDate } = phoneCache;
 
 const TABS = ['today', 'month', 'year'];
 const pad = value => String(value).padStart(2, '0');
@@ -17,7 +20,24 @@ const hasPeriod = value => Boolean(value?.periods?.length || (value?.start && va
 // PANCHANG_CONTRACT_HELPERS_START
 const MAX_DAY_CACHE_SIZE = 24;
 function safeArray(value) { return Array.isArray(value) ? value : []; }
-function roundedCoordinate(value) { return Number(value).toFixed(4); }
+function eventDisplayName(event, language) {
+  const code = language === 'hindi' ? 'hi' : 'en';
+  return event?.names?.[code] || event?.names?.[language] || event?.name || null;
+}
+function dateCardHeading(date, timezone, now = Date.now()) {
+  const localToday = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(now));
+  return date === localToday ? "आज की तारीख · Today's date" : 'चयनित तिथि · Selected date';
+}
+function eventTypeLabel(event, language) {
+  const type = event?.type || event?.eventType;
+  const labels = {
+    LUNAR_OBSERVANCE: { en: 'Lunar observance', hi: 'चंद्र पर्व' }, VRATA: { en: 'Vrata', hi: 'व्रत' },
+    FESTIVAL: { en: 'Festival', hi: 'पर्व' }, FESTIVAL_PERIOD: { en: 'Festival period', hi: 'पर्व अवधि' },
+    SOLAR_OBSERVANCE: { en: 'Solar observance', hi: 'सौर पर्व' },
+  };
+  return labels[type]?.[language === 'hindi' ? 'hi' : 'en'] || null;
+}
+function roundedCoordinate(value) { return Number(value).toFixed(3); }
 function dayCacheKey(date, location) {
   const calculationVersion = location?.calculationVersion || 'backend-current';
   return [date, roundedCoordinate(location?.latitude), roundedCoordinate(location?.longitude), location?.timezone || '', calculationVersion].join('|');
@@ -42,12 +62,18 @@ function normalizeMonthData(value, requestedYear, requestedMonth, cachedDays = {
   const month = Number.isInteger(requestedMonth) ? requestedMonth : value?.month;
   if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return { ...value, year, month, days: [], events: safeArray(value?.events), partial: true };
   const returned = new Map(safeArray(value?.days).filter(day => day && typeof day.date === 'string' && day.available !== false).map(day => [day.date, day]));
+  const eventsByDate = new Map();
+  for (const event of safeArray(value?.events)) {
+    if (!event?.date) continue;
+    const events = eventsByDate.get(event.date) || []; events.push(event); eventsByDate.set(event.date, events);
+  }
   const days = Array.from({ length: daysInMonth(year, month) }, (_, index) => {
     const dayNumber = index + 1; const isoDate = monthIsoDate(year, month, dayNumber);
     const source = cachedDays[isoDate] || returned.get(isoDate) || null;
     const summary = source ? { tithi: source.tithi || source.panchang?.tithi?.name || null, paksha: source.paksha || source.traditionalDate?.paksha || null,
       nakshatra: source.nakshatra || source.panchang?.nakshatra?.name || null, events: safeArray(source.events) } : null;
-    return { isoDate, date: isoDate, dayNumber, weekday: new Date(`${isoDate}T12:00:00`).getDay(), status: summary ? 'LOADED' : 'NOT_LOADED', summary };
+    return { isoDate, date: isoDate, dayNumber, weekday: new Date(`${isoDate}T12:00:00`).getDay(), status: summary ? 'LOADED' : 'NOT_LOADED',
+      summary, events: [...safeArray(summary?.events), ...safeArray(eventsByDate.get(isoDate))] };
   });
   return { ...value, year, month, days, events: safeArray(value?.events), partial: days.some(day => day.status !== 'LOADED') };
 }
@@ -104,13 +130,17 @@ export default function PanchangScreen() {
 
   useEffect(() => {
     AsyncStorage.getItem('user_language').then(value => value && setLanguage(value)).catch(() => {});
-    resolveLocation().then(setLocation).catch(errorValue => { setError(errorValue.message); setLoading(false); });
+    resolveLocation().then(value => { setLocation(value); setDate(phoneLocalDate(Date.now(), value.timezone)); }).catch(errorValue => { setError(errorValue.message); setLoading(false); });
   }, []);
   const load = useCallback(async () => {
     if (!location) return;
     const activeRequest = ++requestId.current;
     const cacheKey = dayCacheKey(date, location);
-    const cached = tab === 'today' ? getCachedDay(dayCache.current, cacheKey) : null;
+    let cached = tab === 'today' ? getCachedDay(dayCache.current, cacheKey) : null;
+    if (!cached && tab === 'today') {
+      const persisted = await getCachedPanchang(AsyncStorage, { date, location }).catch(() => null);
+      if (persisted) { cached = { date, locationKey: cacheKey, data: persisted }; setCachedDay(dayCache.current, cacheKey, cached); }
+    }
     if (cached) { setData(cached.data); setError(null); setLoading(false); setDayStates(current => ({ ...current, [date]: 'LOADED' })); return; }
     setLoading(true); setError(null); setData(null);
     if (tab === 'today') setDayStates(current => ({ ...current, [date]: 'LOADING' }));
@@ -127,6 +157,7 @@ export default function PanchangScreen() {
         setCacheRevision(current => current + 1);
         setDayStates(current => ({ ...current, [date]: 'LOADED' }));
         await AsyncStorage.setItem('today_panchang', JSON.stringify(json.data));
+        await setCachedPanchang(AsyncStorage, { date, location }, json.data).catch(() => {});
       }
     } catch (errorValue) {
       if (activeRequest !== requestId.current) return;
@@ -143,25 +174,26 @@ export default function PanchangScreen() {
     <View style={s.header}><TouchableOpacity onPress={() => router.back()}><Text style={s.back}>‹</Text></TouchableOpacity><View><Text style={s.title}>Panchang · पंचांग</Text><Text style={s.location}>{location?.label || 'Location required'} · {location?.timezone || ''}</Text></View></View>
     <View style={s.tabs}>{TABS.map(item => <TouchableOpacity key={item} onPress={() => { requestId.current += 1; setTab(item); }} style={[s.tab, tab === item && s.tabActive]}><Text style={[s.tabText, tab === item && s.tabTextActive]}>{item.toUpperCase()}</Text></TouchableOpacity>)}</View>
     <View style={s.controls}><TouchableOpacity onPress={() => { requestId.current += 1; if (tab === 'today') setDate(shiftDay(date, -1)); else if (tab === 'month') setMonthState(shiftMonth(monthState.year, monthState.month, -1)); else setYear(value => value - 1); }}><Text style={s.control}>‹</Text></TouchableOpacity><Text style={s.controlTitle}>{title}</Text><TouchableOpacity onPress={() => { requestId.current += 1; if (tab === 'today') setDate(shiftDay(date, 1)); else if (tab === 'month') setMonthState(shiftMonth(monthState.year, monthState.month, 1)); else setYear(value => value + 1); }}><Text style={s.control}>›</Text></TouchableOpacity></View>
-    <TouchableOpacity style={s.todayButton} onPress={() => { const now = new Date(); requestId.current += 1; setDate(iso(now)); setMonthState({ year: now.getFullYear(), month: now.getMonth() + 1 }); setYear(now.getFullYear()); setTab('today'); }}><Text style={s.todayText}>{language === 'hindi' ? 'आज पर जाएँ' : 'Go to Today'}</Text></TouchableOpacity>
+    <TouchableOpacity style={s.todayButton} onPress={() => { const now = new Date(); requestId.current += 1; setDate(location ? phoneLocalDate(now, location.timezone) : iso(now)); setMonthState({ year: now.getFullYear(), month: now.getMonth() + 1 }); setYear(now.getFullYear()); setTab('today'); }}><Text style={s.todayText}>{language === 'hindi' ? 'आज पर जाएँ' : 'Go to Today'}</Text></TouchableOpacity>
     {loading ? <View style={s.loading}><ActivityIndicator color="#F4A261" /><Text style={s.loadingText}>{language === 'hindi' ? 'पंचांग लोड हो रहा है…' : 'Loading Panchang…'}</Text></View> : error ? <View style={s.message}><Text style={s.error}>{tab === 'today' ? (language === 'hindi' ? 'पंचांग लोड नहीं हुआ — पुनः प्रयास करें' : 'Could not load Panchang — tap to retry') : 'Panchang could not be loaded.'}</Text>{tab === 'today' ? <><Text style={s.note}>{date}</Text><Text style={s.note}>{location?.label} · {location?.timezone}</Text></> : null}<Text style={s.note}>No approximate values are substituted.</Text><TouchableOpacity onPress={load} style={s.retry}><Text style={s.retryText}>Retry</Text></TouchableOpacity></View> :
       <ScrollView contentContainerStyle={s.content}>{tab === 'today' ? <Daily data={data} language={language} /> : tab === 'month' ? <Month data={data} year={monthState.year} month={monthState.month} cachedDays={cachedDaysForLocation(dayCache.current, location)} dayStates={dayStates} cacheRevision={cacheRevision} language={language} onDay={selectDate} /> : <Year data={data} displayedYear={year} language={language} onMonth={month => { requestId.current += 1; setMonthState({ year, month }); setTab('month'); }} />}</ScrollView>}
   </View>;
 }
 
 function Daily({ data, language }) { if (!isValidDailyData(data)) return null; const p = data.panchang; const timezone = data.modernDate.timezone;
-  const auspicious = [['Abhijit Muhurta', data.muhurta.abhijit], ['Brahma Muhurta', data.muhurta.brahma]].filter(([, value]) => hasPeriod(value));
-  const caution = [['Rahu Kalam', data.avoidPeriods.rahuKalam], ['Yamaganda', data.avoidPeriods.yamaganda], ['Gulika', data.avoidPeriods.gulika]].filter(([, value]) => hasPeriod(value));
+  const hindi = language === 'hindi';
+  const auspicious = [[hindi ? 'अभिजीत मुहूर्त' : 'Abhijit Muhurta', data.muhurta.abhijit], [hindi ? 'ब्रह्म मुहूर्त' : 'Brahma Muhurta', data.muhurta.brahma]].filter(([, value]) => hasPeriod(value));
+  const caution = [[hindi ? 'राहु काल' : 'Rahu Kalam', data.avoidPeriods.rahuKalam], [hindi ? 'यमगण्ड' : 'Yamaganda', data.avoidPeriods.yamaganda], [hindi ? 'गुलिक काल' : 'Gulika Kalam', data.avoidPeriods.gulika]].filter(([, value]) => hasPeriod(value));
   return <>
-  <Section title="आज की तारीख · Today's date"><Text style={s.gregorian}>{data.modernDate.formattedLocalDate}</Text><Text style={s.traditional}>{[data.traditionalDate.samvat, data.traditionalDate.masa, data.traditionalDate.paksha, data.traditionalDate.tithi].filter(Boolean).join(' · ') || 'Provider does not supply a regional calendar date in this response.'}</Text><Text style={s.education}>The Gregorian calendar identifies the civil date. Panchang describes the same day using Tithi, Nakshatra, Yoga and Karana.</Text></Section>
+  <Section title={dateCardHeading(data.modernDate.isoDate, timezone)}><Text style={s.gregorian}>{data.modernDate.formattedLocalDate}</Text><Text style={s.traditional}>{[data.traditionalDate.samvat, data.traditionalDate.masa, data.traditionalDate.paksha, data.traditionalDate.tithi].filter(Boolean).join(' · ') || 'Provider does not supply a regional calendar date in this response.'}</Text></Section>
   <Section title="पंचांग के पाँच अंग · Five elements"><Row label="तिथि · Tithi" value={p.tithi.name} note="Lunar day based on the relative position of Sun and Moon."/><Row label="वार · Vara" value={p.vara}/><Row label="नक्षत्र · Nakshatra" value={p.nakshatra.name} note="The lunar mansion occupied by the Moon."/><Row label="योग · Yoga" value={p.yoga.name}/><Row label="करण · Karana" value={p.karana.name}/></Section>
   <Section title="सूर्य और चन्द्र · Sun & Moon"><Row label="Sunrise" value={time(data.sunMoon.sunrise, timezone)}/><Row label="Sunset" value={time(data.sunMoon.sunset, timezone)}/>{data.sunMoon.moonrise ? <Row label="Moonrise" value={time(data.sunMoon.moonrise, timezone)}/> : null}{data.sunMoon.moonset ? <Row label="Moonset" value={time(data.sunMoon.moonset, timezone)}/> : null}</Section>
   <Section title="शुभ समय · Auspicious periods">{auspicious.length ? auspicious.map(([label, value]) => <Row key={label} label={label} value={periodText(value, timezone)}/>) : <Text style={s.note}>{language === 'hindi' ? 'आज के लिए कोई सत्यापित शुभ अवधि उपलब्ध नहीं है।' : 'No verified auspicious period is listed for this date.'}</Text>}</Section>
   <Section title="सावधानी के समय · Caution periods">{caution.length ? caution.map(([label, value]) => <Row key={label} label={label} value={periodText(value, timezone)}/>) : <Text style={s.note}>{language === 'hindi' ? 'आज के लिए कोई सत्यापित सावधानी अवधि उपलब्ध नहीं है।' : 'No verified caution period is listed for this date.'}</Text>}{caution.length ? <Text style={s.note}>Traditional timing guidance only; outcomes are not guaranteed.</Text> : null}</Section>
-  <Section title="Festivals & Vrata">{data.events.length ? data.events.map((event, index) => <Text key={`${event.name}-${index}`} style={s.event}>• {event.name}</Text>) : <Text style={s.note}>{language === 'hindi' ? 'आज कोई प्रमुख व्रत या पर्व उपलब्ध नहीं है।' : 'No major verified vrat or festival is listed for this date.'}</Text>}</Section>
+  <Section title="Festivals & Vrata">{data.events.some(event => eventDisplayName(event, language)) ? data.events.map((event, index) => { const name = eventDisplayName(event, language); const type = eventTypeLabel(event, language); return name ? <View key={`${event.eventId || name}-${index}`}><Text style={s.event}>• {name}</Text>{type ? <Text style={s.eventType}>{type}</Text> : null}</View> : null; }) : <Text style={s.note}>{language === 'hindi' ? 'आज कोई प्रमुख व्रत या पर्व उपलब्ध नहीं है।' : 'No major verified vrat or festival is listed for this date.'}</Text>}</Section>
   </>; }
 
-function Month({ data, year, month, cachedDays, dayStates, cacheRevision, language, onDay }) { const calendar = normalizeMonthData(data, year, month, cachedDays); return <><Text style={s.note}>{language === 'hindi' ? 'किसी भी तारीख पर टैप करके उस दिन का पूरा पंचांग देखें।' : 'Tap any date to view the complete Panchang.'}</Text><View style={s.grid}>{calendar.days.map(day => { const state = day.summary ? 'LOADED' : dayStates[day.isoDate] || 'NOT_LOADED'; return <TouchableOpacity key={`${day.isoDate}-${cacheRevision}`} style={s.day} onPress={() => onDay(day.isoDate)}><Text style={s.dayNumber}>{day.dayNumber}</Text>{day.summary?.tithi ? <Text numberOfLines={1} style={s.dayValue}>{day.summary.tithi}</Text> : <Text numberOfLines={2} style={s.dayValue}>{state === 'ERROR' ? (language === 'hindi' ? 'पुनः प्रयास करें' : 'Tap to retry') : language === 'hindi' ? 'देखें' : 'View'}</Text>}{safeArray(day.summary?.events).length ? <Text style={s.marker}>●</Text> : null}</TouchableOpacity>; })}</View></>; }
+function Month({ data, year, month, cachedDays, dayStates, cacheRevision, language, onDay }) { const calendar = normalizeMonthData(data, year, month, cachedDays); return <><Text style={s.note}>{language === 'hindi' ? 'किसी भी तारीख पर टैप करके उस दिन का पूरा पंचांग देखें।' : 'Tap any date to view the complete Panchang.'}</Text><View style={s.grid}>{calendar.days.map(day => { const state = day.summary ? 'LOADED' : dayStates[day.isoDate] || 'NOT_LOADED'; return <TouchableOpacity key={`${day.isoDate}-${cacheRevision}`} style={s.day} onPress={() => onDay(day.isoDate)}><Text style={s.dayNumber}>{day.dayNumber}</Text>{day.summary?.tithi ? <Text numberOfLines={1} style={s.dayValue}>{day.summary.tithi}</Text> : <Text numberOfLines={2} style={s.dayValue}>{state === 'ERROR' ? (language === 'hindi' ? 'पुनः प्रयास करें' : 'Tap to retry') : language === 'hindi' ? 'देखें' : 'View'}</Text>}{safeArray(day.events).length ? <Text style={s.marker}>●</Text> : null}</TouchableOpacity>; })}</View></>; }
 function Year({ data, displayedYear, language, onMonth }) { const overview = normalizeYearData({ ...data, year: displayedYear }); return <><Text style={s.note}>{language === 'hindi' ? 'महीना चुनें और विस्तृत पंचांग देखें।' : 'Choose a month to view its detailed Panchang.'}</Text>{overview.months.map(row => <TouchableOpacity key={row.month} style={s.month} onPress={() => onMonth(row.month)}><View style={s.monthRow}><Text style={s.monthName}>{new Date(displayedYear, row.month - 1).toLocaleDateString(language === 'hindi' ? 'hi-IN' : 'en-IN', { month: 'long' })}</Text><Text style={s.chevron}>›</Text></View>{row.events.slice(0, 3).map((event, index) => <Text key={`${event.name}-${index}`} style={s.note}>• {event.name}</Text>)}</TouchableOpacity>)}</>; }
 
-const s = StyleSheet.create({ screen:{flex:1,backgroundColor:'#140800',paddingTop:45},header:{flexDirection:'row',alignItems:'center',gap:14,paddingHorizontal:18},back:{fontSize:40,color:'#F4A261'},title:{fontSize:22,fontWeight:'800',color:'#FDF6ED'},location:{fontSize:11,color:'#D6B89A',marginTop:3},tabs:{flexDirection:'row',margin:18,backgroundColor:'#251006',borderRadius:14,padding:4},tab:{flex:1,padding:10,alignItems:'center',borderRadius:10},tabActive:{backgroundColor:'#E8620A'},tabText:{color:'#C7A78A',fontWeight:'700'},tabTextActive:{color:'#fff'},controls:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:22},control:{fontSize:34,color:'#F4A261'},controlTitle:{color:'#FDF6ED',fontSize:16,fontWeight:'700'},todayButton:{alignSelf:'center',padding:8},todayText:{color:'#F4A261',fontWeight:'700'},content:{padding:16,paddingBottom:50},card:{backgroundColor:'#211006',borderWidth:1,borderColor:'#4A2A16',borderRadius:16,padding:15,marginBottom:12},sectionTitle:{color:'#F4A261',fontWeight:'800',fontSize:15,marginBottom:10},gregorian:{fontSize:19,fontWeight:'800',color:'#FDF6ED'},traditional:{color:'#FFD18F',marginTop:7},education:{color:'#C7B5A3',lineHeight:19,marginTop:10},row:{flexDirection:'row',justifyContent:'space-between',gap:12,paddingVertical:9,borderBottomWidth:StyleSheet.hairlineWidth,borderBottomColor:'#4A2A16'},label:{color:'#FDF6ED',fontWeight:'700'},value:{color:'#F4A261',fontWeight:'700',textAlign:'right',maxWidth:'48%'},note:{fontSize:11,color:'#BDA791',lineHeight:16,marginTop:3},event:{color:'#FDF6ED',paddingVertical:4},meta:{color:'#8F7663',fontSize:10,textAlign:'center'},loading:{marginTop:60,alignItems:'center',gap:12},loadingText:{color:'#D6B89A',fontWeight:'700'},message:{margin:20,padding:20,backgroundColor:'#211006',borderRadius:16},error:{color:'#FDF6ED',fontWeight:'700'},retry:{marginTop:14,backgroundColor:'#E8620A',padding:11,borderRadius:10,alignItems:'center'},retryText:{color:'#fff',fontWeight:'800'},grid:{flexDirection:'row',flexWrap:'wrap',gap:7,marginTop:12},day:{width:'22.8%',minHeight:76,backgroundColor:'#211006',borderRadius:10,padding:8,borderWidth:1,borderColor:'#4A2A16'},dayNumber:{color:'#FDF6ED',fontWeight:'800'},dayValue:{color:'#D6B89A',fontSize:9,marginTop:7},marker:{color:'#F4A261',fontSize:9,marginTop:4},month:{backgroundColor:'#211006',borderRadius:14,padding:15,marginBottom:10,borderWidth:1,borderColor:'#4A2A16'},monthRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},monthName:{color:'#FDF6ED',fontSize:16,fontWeight:'800'},chevron:{color:'#F4A261',fontSize:24} });
+const s = StyleSheet.create({ screen:{flex:1,backgroundColor:'#140800',paddingTop:45},header:{flexDirection:'row',alignItems:'center',gap:14,paddingHorizontal:18},back:{fontSize:40,color:'#F4A261'},title:{fontSize:22,fontWeight:'800',color:'#FDF6ED'},location:{fontSize:11,color:'#D6B89A',marginTop:3},tabs:{flexDirection:'row',margin:18,backgroundColor:'#251006',borderRadius:14,padding:4},tab:{flex:1,padding:10,alignItems:'center',borderRadius:10},tabActive:{backgroundColor:'#E8620A'},tabText:{color:'#C7A78A',fontWeight:'700'},tabTextActive:{color:'#fff'},controls:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:22},control:{fontSize:34,color:'#F4A261'},controlTitle:{color:'#FDF6ED',fontSize:16,fontWeight:'700'},todayButton:{alignSelf:'center',padding:8},todayText:{color:'#F4A261',fontWeight:'700'},content:{padding:16,paddingBottom:50},card:{backgroundColor:'#211006',borderWidth:1,borderColor:'#4A2A16',borderRadius:16,padding:15,marginBottom:12},sectionTitle:{color:'#F4A261',fontWeight:'800',fontSize:15,marginBottom:10},gregorian:{fontSize:19,fontWeight:'800',color:'#FDF6ED'},traditional:{color:'#FFD18F',marginTop:7},row:{flexDirection:'row',justifyContent:'space-between',gap:12,paddingVertical:9,borderBottomWidth:StyleSheet.hairlineWidth,borderBottomColor:'#4A2A16'},label:{color:'#FDF6ED',fontWeight:'700'},value:{color:'#F4A261',fontWeight:'700',textAlign:'right',maxWidth:'48%'},note:{fontSize:11,color:'#BDA791',lineHeight:16,marginTop:3},event:{color:'#FDF6ED',paddingTop:5},eventType:{color:'#BDA791',fontSize:10,marginLeft:13,paddingBottom:4},meta:{color:'#8F7663',fontSize:10,textAlign:'center'},loading:{marginTop:60,alignItems:'center',gap:12},loadingText:{color:'#D6B89A',fontWeight:'700'},message:{margin:20,padding:20,backgroundColor:'#211006',borderRadius:16},error:{color:'#FDF6ED',fontWeight:'700'},retry:{marginTop:14,backgroundColor:'#E8620A',padding:11,borderRadius:10,alignItems:'center'},retryText:{color:'#fff',fontWeight:'800'},grid:{flexDirection:'row',flexWrap:'wrap',gap:7,marginTop:12},day:{width:'22.8%',minHeight:76,backgroundColor:'#211006',borderRadius:10,padding:8,borderWidth:1,borderColor:'#4A2A16'},dayNumber:{color:'#FDF6ED',fontWeight:'800'},dayValue:{color:'#D6B89A',fontSize:9,marginTop:7},marker:{color:'#F4A261',fontSize:9,marginTop:4},month:{backgroundColor:'#211006',borderRadius:14,padding:15,marginBottom:10,borderWidth:1,borderColor:'#4A2A16'},monthRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},monthName:{color:'#FDF6ED',fontSize:16,fontWeight:'800'},chevron:{color:'#F4A261',fontSize:24} });

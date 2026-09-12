@@ -12,7 +12,7 @@ const config = fs.readFileSync(path.join(root, 'utils', 'backend-config.js'), 'u
 const helperSource = screen.match(/\/\/ PANCHANG_CONTRACT_HELPERS_START([\s\S]*?)\/\/ PANCHANG_CONTRACT_HELPERS_END/)?.[1];
 assert.ok(helperSource, 'Panchang contract helpers must be present');
 const contracts = {};
-vm.runInNewContext(`${helperSource}; this.normalizeMonthData = normalizeMonthData; this.normalizeYearData = normalizeYearData; this.daysInMonth = daysInMonth; this.isValidDailyData = isValidDailyData; this.dayCacheKey = dayCacheKey; this.getCachedDay = getCachedDay; this.setCachedDay = setCachedDay; this.MAX_DAY_CACHE_SIZE = MAX_DAY_CACHE_SIZE;`, contracts);
+vm.runInNewContext(`${helperSource}; this.normalizeMonthData = normalizeMonthData; this.normalizeYearData = normalizeYearData; this.daysInMonth = daysInMonth; this.isValidDailyData = isValidDailyData; this.eventDisplayName = eventDisplayName; this.eventTypeLabel = eventTypeLabel; this.dateCardHeading = dateCardHeading; this.dayCacheKey = dayCacheKey; this.getCachedDay = getCachedDay; this.setCachedDay = setCachedDay; this.MAX_DAY_CACHE_SIZE = MAX_DAY_CACHE_SIZE;`, contracts);
 const homeHelperSource = home.match(/\/\/ HOME_PANCHANG_PRESENTATION_HELPERS_START([\s\S]*?)\/\/ HOME_PANCHANG_PRESENTATION_HELPERS_END/)?.[1];
 assert.ok(homeHelperSource, 'Home Panchang presentation helpers must be present');
 const homeContracts = {};
@@ -36,7 +36,7 @@ test('dedicated screen provides daily month year without fabricated Panchang val
   assert.match(screen, /const TABS = \['today', 'month', 'year'\]/);
   assert.match(screen, /PANCHANG_DAY/); assert.match(screen, /PANCHANG_MONTH/); assert.match(screen, /PANCHANG_YEAR/);
   assert.match(screen, /No approximate values are substituted/);
-  assert.doesNotMatch(screen, /utils\/panchang|calculatePanchang|fake|fallback.*tithi/i);
+  assert.doesNotMatch(screen, /utils\/panchang(?:['"]|$)|calculatePanchang|fake|fallback.*tithi/i);
 });
 
 test('all Panchang endpoints are backend-only configuration paths', () => {
@@ -109,6 +109,43 @@ test('Daily omits unavailable individual period rows and uses concise section em
   assert.doesNotMatch(screen, /<Row label="Rahu Kalam"/);
 });
 
+test('Daily renders derived period fields with English and Hindi labels while retaining fallbacks', () => {
+  for (const field of ['muhurta.abhijit', 'avoidPeriods.rahuKalam', 'avoidPeriods.yamaganda', 'avoidPeriods.gulika']) assert.match(screen, new RegExp(`data\\.${field.replace('.', '\\.')}`));
+  for (const label of ['Abhijit Muhurta', 'Rahu Kalam', 'Yamaganda', 'Gulika Kalam', 'अभिजीत मुहूर्त', 'राहु काल', 'यमगण्ड', 'गुलिक काल']) assert.match(screen, new RegExp(label));
+  assert.match(screen, /No verified auspicious period is listed for this date/);
+  assert.match(screen, /No verified caution period is listed for this date/);
+});
+
+test('stored event localization renders and month markers do not invent client events', () => {
+  assert.equal(contracts.eventDisplayName({ name: 'English', names: { hi: 'हिन्दी' } }, 'hindi'), 'हिन्दी');
+  assert.equal(contracts.eventDisplayName({ name: 'English', names: {} }, 'english'), 'English');
+  const month = contracts.normalizeMonthData({ year: 2026, month: 8, days: [], events: [{ eventId: 'verified', date: '2026-08-20', name: 'Stored' }] });
+  assert.equal(month.days[19].status, 'NOT_LOADED'); assert.equal(month.days[19].events.length, 1);
+  assert.equal(month.days[18].events.length, 0);
+  assert.match(screen, /eventDisplayName\(event, language\)/);
+  assert.match(screen, /safeArray\(day\.events\)\.length/);
+  assert.doesNotMatch(screen, /Janmashtami|Diwali|Holi/);
+});
+
+test('date card distinguishes actual local today from selected dates and omits the old explanation', () => {
+  const now = '2026-09-11T19:00:00Z';
+  assert.equal(contracts.dateCardHeading('2026-09-12', 'Asia/Kolkata', now), "आज की तारीख · Today's date");
+  assert.equal(contracts.dateCardHeading('2026-09-11', 'Asia/Kolkata', now), 'चयनित तिथि · Selected date');
+  assert.equal(contracts.dateCardHeading('2026-09-11', 'UTC', now), "आज की तारीख · Today's date");
+  assert.doesNotMatch(screen, /The Gregorian calendar identifies the civil date/);
+  assert.match(screen, /title=\{dateCardHeading\(data\.modernDate\.isoDate, timezone\)\}/);
+});
+
+test('verified event names and classifications render in English and Hindi', () => {
+  const event = { name: 'Diwali', names: { en: 'Diwali', hi: 'दीपावली' }, type: 'FESTIVAL' };
+  assert.equal(contracts.eventDisplayName(event, 'english'), 'Diwali');
+  assert.equal(contracts.eventDisplayName(event, 'hindi'), 'दीपावली');
+  assert.equal(contracts.eventTypeLabel(event, 'english'), 'Festival');
+  assert.equal(contracts.eventTypeLabel(event, 'hindi'), 'पर्व');
+  assert.match(screen, /No major verified vrat or festival is listed for this date/);
+  assert.doesNotMatch(screen, /tithi.{0,120}(?:events\.push|FESTIVAL)/i);
+});
+
 test('Month date tap still opens the selected Daily Panchang', () => {
   assert.match(screen, /const selectDate = value => \{ requestId\.current \+= 1; setDate\(value\); setTab\('today'\); \}/);
   assert.match(screen, /onDay=\{selectDate\}/);
@@ -160,7 +197,7 @@ test('loading and retry UX are explicit and no large persistent or cookie cache 
 test('navigation handles month and year boundaries and Go to Today resets all selections', () => {
   assert.match(screen, /shiftMonth\(monthState\.year, monthState\.month, -1\)/);
   assert.match(screen, /shiftMonth\(monthState\.year, monthState\.month, 1\)/);
-  assert.match(screen, /setDate\(iso\(now\)\)/);
+  assert.match(screen, /setDate\(location \? phoneLocalDate\(now, location\.timezone\) : iso\(now\)\)/);
   assert.match(screen, /setMonthState\(\{ year: now\.getFullYear\(\), month: now\.getMonth\(\) \+ 1 \}\)/);
   assert.match(screen, /setYear\(now\.getFullYear\(\)\)/);
   assert.match(screen, /setTab\('today'\)/);
