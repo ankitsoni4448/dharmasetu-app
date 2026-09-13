@@ -94,6 +94,10 @@ assert.equal(isCanonicalBirthProfileReady({ ...readyBirthProfile, birth_time_cer
   assert.doesNotMatch(resultScreen, /\|\| ["']0°00/, 'missing degree must not become zero');
   assert.match(resultScreen, /showLegacyInterpretation && Array\.isArray\(calc\.remedies\)/,
     'legacy remedies must remain quarantined from the provider-backed result');
+  assert.match(resultScreen, /showLegacyInterpretation && Array\.isArray\(calc\.yogas\)/,
+    'legacy Yogas must remain quarantined from the provider-backed result');
+  assert.match(resultScreen, /showLegacyInterpretation && Array\.isArray\(calc\.dosh\)/,
+    'legacy Doshas must remain quarantined from the provider-backed result');
   assert.match(resultScreen, /showLegacyInterpretation && calc\.insights/,
     'legacy deterministic insights must remain quarantined');
 
@@ -102,6 +106,8 @@ assert.equal(isCanonicalBirthProfileReady({ ...readyBirthProfile, birth_time_cer
     'authoritative UI must display only explicitly available canonical facts');
   assert.match(myKundli, /normalized\.charts\?\.d1\?\.data/,
     'canonical provider chart wrapper must be consumed');
+  assert.match(myKundli, /normalized\.houses\?\.status === 'AVAILABLE'/,
+    'house structure must render only when canonical status is available');
   assert.doesNotMatch(myKundli, /kundli_calc|calculateKundli/,
     'authoritative screen must never call the legacy approximate calculator');
 

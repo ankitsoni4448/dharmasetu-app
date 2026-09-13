@@ -90,7 +90,10 @@ export default function MyKundliScreen() {
       <Section title="Chart — D9 / Navamsha"><ProviderChart chart={normalized.charts?.d9?.data} unavailable={unavailable} /></Section>
       <Section title="Chart — Bhava"><ProviderChart chart={normalized.charts?.bhava?.data} unavailable={unavailable} /></Section>
       <Section title="Graha">{normalized.planets?.length ? normalized.planets.map(p => <View key={p.name} style={styles.planet}><Text style={styles.planetName}>{p.name}</Text><Text style={styles.muted}>{[p.sign, p.longitude != null ? `${p.longitude}°` : null, p.house != null ? `House ${p.house}` : null].filter(Boolean).join(' · ')}</Text></View>) : unavailable}</Section>
-      <Section title="Houses / Bhava">{Array.isArray(normalized.houses) && normalized.houses.length ? normalized.houses.map((h, i) => <Row key={i} label={`House ${h.house || i + 1}`} value={h.sign || h.rasi || h.name} />) : unavailable}</Section>
+      <Section title="Houses / Bhava">{normalized.houses?.status === 'AVAILABLE' && normalized.houses.items?.length
+        ? normalized.houses.items.map(h => <Row key={h.number} label={`House ${h.number}`}
+          value={[h.sign, h.lord ? `Lord: ${h.lord}` : null, h.occupants?.length ? `Occupants: ${h.occupants.join(', ')}` : null].filter(Boolean).join(' · ')} />)
+        : unavailable}</Section>
       <Section title="Dasha"><Row label="Mahadasha" value={jyotish?.compact_context?.currentMahadasha} /><Row label="Antardasha" value={jyotish?.compact_context?.currentAntardasha} />{!normalized.dasha && unavailable}</Section>
       <Section title="Yogas">{normalized.yogas?.length ? normalized.yogas.map((item, i) => <Text key={i} style={styles.body}>• {valueName(item)}</Text>) : unavailable}</Section>
       <Section title="Doshas">{normalized.doshas ? <Text style={styles.body}>{valueName(normalized.doshas) || 'Provider data available'}</Text> : unavailable}</Section>
