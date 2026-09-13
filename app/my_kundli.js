@@ -56,7 +56,11 @@ export default function MyKundliScreen() {
   const jyotish = account?.jyotishProfile;
   const birth = account?.birthProfile;
   const normalized = jyotish?.chart_data?.normalized || {};
-  const core = normalized.core || jyotish?.compact_context || {};
+  const canonicalValue = fact => fact?.status === 'AVAILABLE' ? fact : null;
+  const lagna = canonicalValue(normalized.lagna);
+  const moonSign = canonicalValue(normalized.moon_sign);
+  const sunSign = canonicalValue(normalized.sun_sign);
+  const nakshatra = canonicalValue(normalized.nakshatra);
   const status = jyotish?.status || account?.onboardingStatus || 'KUNDLI_PENDING';
   const generate = async () => {
     setGenerating(true); setError(null);
@@ -81,10 +85,10 @@ export default function MyKundliScreen() {
           {status !== 'INPUT_CORRECTION_REQUIRED' && <TouchableOpacity style={styles.primary} onPress={generate} disabled={generating}>{generating ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{t.retry}</Text>}</TouchableOpacity>}</View>
       </View>}
       {birth?.birth_time_certainty && birth.birth_time_certainty !== 'EXACT' && <Text style={styles.precision}>{t.precision}</Text>}
-      <Section title="Overview"><Row label="Name" value={account?.profile?.name} /><Row label="Date" value={birth?.date_of_birth} /><Row label="Time" value={birth?.birth_time || 'Unknown'} /><Row label="Birthplace" value={birth?.place_name} /><Row label="Time certainty" value={birth?.birth_time_certainty} /><Row label="Status" value={status} /><Row label="Rashi" value={core.rashi} /><Row label="Lagna" value={core.lagna} /><Row label="Nakshatra" value={core.nakshatra} /><Row label="Pada" value={core.nakshatraPada} /></Section>
-      <Section title="Chart — D1 / Rashi"><ProviderChart chart={normalized.charts?.d1} unavailable={unavailable} /></Section>
-      <Section title="Chart — D9 / Navamsha"><ProviderChart chart={normalized.charts?.d9} unavailable={unavailable} /></Section>
-      <Section title="Chart — Bhava"><ProviderChart chart={normalized.charts?.bhava} unavailable={unavailable} /></Section>
+      <Section title="Overview"><Row label="Name" value={account?.profile?.name} /><Row label="Date" value={birth?.date_of_birth} /><Row label="Time" value={birth?.birth_time || 'Unknown'} /><Row label="Birthplace" value={birth?.place_name} /><Row label="Time certainty" value={birth?.birth_time_certainty} /><Row label="Status" value={status} /><Row label="Rashi" value={moonSign?.sign || t.unavailable} /><Row label="Sun sign" value={sunSign?.sign || t.unavailable} /><Row label="Lagna" value={lagna?.sign || t.unavailable} /><Row label="Nakshatra" value={nakshatra?.name || t.unavailable} /><Row label="Pada" value={nakshatra?.pada ?? t.unavailable} /></Section>
+      <Section title="Chart — D1 / Rashi"><ProviderChart chart={normalized.charts?.d1?.data} unavailable={unavailable} /></Section>
+      <Section title="Chart — D9 / Navamsha"><ProviderChart chart={normalized.charts?.d9?.data} unavailable={unavailable} /></Section>
+      <Section title="Chart — Bhava"><ProviderChart chart={normalized.charts?.bhava?.data} unavailable={unavailable} /></Section>
       <Section title="Graha">{normalized.planets?.length ? normalized.planets.map(p => <View key={p.name} style={styles.planet}><Text style={styles.planetName}>{p.name}</Text><Text style={styles.muted}>{[p.sign, p.longitude != null ? `${p.longitude}°` : null, p.house != null ? `House ${p.house}` : null].filter(Boolean).join(' · ')}</Text></View>) : unavailable}</Section>
       <Section title="Houses / Bhava">{Array.isArray(normalized.houses) && normalized.houses.length ? normalized.houses.map((h, i) => <Row key={i} label={`House ${h.house || i + 1}`} value={h.sign || h.rasi || h.name} />) : unavailable}</Section>
       <Section title="Dasha"><Row label="Mahadasha" value={jyotish?.compact_context?.currentMahadasha} /><Row label="Antardasha" value={jyotish?.compact_context?.currentAntardasha} />{!normalized.dasha && unavailable}</Section>
