@@ -26,7 +26,10 @@ import {
 import { getBackendUrl, BACKEND_CONFIG } from '../../utils/backend-config';
 import { supabase } from '../../utils/supabase';
 import { authenticatedFetch } from '../../utils/entitlements';
-import { clearAuthenticatedLocalData, deleteCurrentAccount } from '../../utils/accountLifecycle';
+import { clearAuthenticatedLocalData, deleteCurrentAccount, restoreAccountLifecycle } from '../../utils/accountLifecycle';
+
+import accountPresentation from '../../utils/accountBirthPresentation';
+const { profilePresentation } = accountPresentation;
 
 // ── BADGE SYSTEM ─────────────────────────────────────────────────
 const BADGES = [
@@ -52,6 +55,7 @@ const PLAN_LABELS = {
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const [user,    setUser]    = useState(null);
+  const [loadError, setLoadError] = useState(false);
   const [pts,     setPts]     = useState(0);
   const [streak,  setStreak]  = useState(0);
   const [lang,    setLang]    = useState('hindi');
@@ -75,8 +79,11 @@ export default function ProfileScreen() {
   );
 
   const loadProfile = async () => {
+    setLoadError(false);
     try {
-      const u      = await safeGet(KEYS.USER);
+      const cache = await safeGet(KEYS.USER);
+      const account = await restoreAccountLifecycle();
+      const u = profilePresentation(account, cache);
       const p      = await safeGetInt(KEYS.PTS, 0);
       const s      = await safeGetInt(KEYS.STREAK_COUNT, 0);
       const l      = await safeGetString(KEYS.USER_LANGUAGE, 'hindi');
@@ -91,8 +98,8 @@ export default function ProfileScreen() {
         setEditLang(u.language || 'hindi');
       }
       Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }).start();
-    } catch (e) {
-      console.log('[Profile] loadProfile error:', e.message);
+    } catch {
+      if (isMounted.current) setLoadError(true);
     }
   };
 
@@ -110,10 +117,7 @@ export default function ProfileScreen() {
         currentLocation: editCity.trim(),
         language:  editLang,
       };
-      await safeSet(KEYS.USER, updated);
-      await safeSetString(KEYS.USER_LANGUAGE, editLang);
-      // Sync to backend (non-blocking)
-      authenticatedFetch(getBackendUrl(BACKEND_CONFIG.ENDPOINTS.USERS_UPDATE), {
+      const response = await authenticatedFetch(getBackendUrl(BACKEND_CONFIG.ENDPOINTS.USERS_UPDATE), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -121,7 +125,12 @@ export default function ProfileScreen() {
           currentLocation: updated.currentLocation,
           language: updated.language,
         }),
-      }).catch(() => {});
+      });
+      if (!response.ok) throw new Error(response.status === 409
+        ? 'Please complete your birth details first using View or edit birth details.'
+        : 'Could not save your profile. Please try again.');
+      await safeSet(KEYS.USER, updated);
+      await safeSetString(KEYS.USER_LANGUAGE, editLang);
       if (isMounted.current) {
         setUser(updated);
         setLang(editLang);
@@ -198,7 +207,7 @@ export default function ProfileScreen() {
   if (!user) {
     return (
       <View style={[s.root, { paddingTop: insets.top, alignItems: 'center', justifyContent: 'center' }]}>
-        <ActivityIndicator color="#E8620A" size="large" />
+        {loadError ? <TouchableOpacity onPress={loadProfile}><Text style={s.infoLbl}>Could not load your account. Tap to retry.</Text></TouchableOpacity> : <ActivityIndicator color="#E8620A" size="large" />}
       </View>
     );
   }
@@ -258,15 +267,11 @@ export default function ProfileScreen() {
             ))}
           </View>
 
-          {/* ── KUNDLI INFO ─── */}
+          {/* ── CANONICAL KUNDLI STATUS ─── */}
           <View style={s.card}>
-            <Text style={s.cardTitle}>🔯 {isH ? 'कुंडली विवरण' : 'Kundli Details'}</Text>
+            <Text style={s.cardTitle}>🔯 {isH ? 'कुंडली के लिए जन्म विवरण' : 'Birth Details for Kundli'}</Text>
             {[
-              { l: isH ? 'राशि' : 'Rashi',         v: user.rashi ? `${user.rashi} (${user.rashiEng || ''})` : null },
-              { l: isH ? 'नक्षत्र' : 'Nakshatra',   v: user.nakshatra },
-              { l: isH ? 'लग्न' : 'Lagna',          v: user.lagna },
-              { l: isH ? 'ग्रह' : 'Planet',         v: user.planet },
-              { l: isH ? 'देवता' : 'Deity',         v: user.deity },
+              { l: 'Kundli', v: user.canonicalKundliReady ? 'Created' : 'Not created' },
               { l: isH ? 'जन्म नगर' : 'Birth City', v: user.birthCity || user.birth_city },
               { l: isH ? 'जन्म तिथि' : 'DOB',       v: user.dob },
             ].map(({ l, v }) => v ? (
@@ -277,9 +282,11 @@ export default function ProfileScreen() {
             ) : null)}
           </View>
 
-          {/* ── EDIT PROFILE ─── */}
-          <TouchableOpacity style={s.myKundliBtn} onPress={() => router.push('/my_kundli')} activeOpacity={0.85}>
-            <Text style={s.myKundliBtnTxt}>{isH ? 'मेरी कुंडली खोलें' : 'Open My Kundli'}</Text>
+          {user.canonicalKundliReady && <TouchableOpacity style={s.myKundliBtn} onPress={() => router.push('/my_kundli')} activeOpacity={0.85}>
+            <Text style={s.myKundliBtnTxt}>{isH ? 'मेरी कुंडली देखें' : 'View My Kundli'}</Text>
+          </TouchableOpacity>}
+          <TouchableOpacity style={s.myKundliBtn} onPress={() => router.push('/birth_details')} activeOpacity={0.85}>
+            <Text style={s.myKundliBtnTxt}>{user.canonicalKundliReady ? (isH ? 'जन्म विवरण बदलें' : 'Edit Birth Details') : (isH ? 'जन्म विवरण पूरा करें' : 'Complete Birth Details')}</Text>
           </TouchableOpacity>
 
           {editing ? (

@@ -3,7 +3,11 @@ import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, Toucha
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
-import { generatePrimaryKundli, restoreAccountLifecycle } from '../utils/accountLifecycle';
+import { restoreAccountLifecycle, retryPrimaryKundli } from '../utils/accountLifecycle';
+import readiness from '../utils/kundliReadiness';
+import presentation from '../utils/accountBirthPresentation';
+
+const { isCanonicalBirthProfileReady } = readiness;
 
 const COPY = {
   english: { title: 'My Kundli', retry: 'Retry', edit: 'Edit birth details', unavailable: 'Not supplied by the calculation provider.',
@@ -42,10 +46,16 @@ export default function MyKundliScreen() {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
   const [language, setLanguage] = useState('english');
+  useEffect(() => {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log('[KundliBuild] kundli-phase1-final-optional-onboarding-20260919');
+      console.log('[KundliRoute] My Kundli mounted');
+    }
+  }, []);
   const load = useCallback(async () => {
     setError(null);
     try {
-      const result = await restoreAccountLifecycle();
+      const result = await restoreAccountLifecycle({ reconcile: true });
       setAccount(result);
       setLanguage(result.profile?.language === 'hindi' ? 'hindi' : 'english');
     } catch (e) { setError(e.code || e.message || 'ACCOUNT_RESTORE_FAILED'); }
@@ -55,20 +65,45 @@ export default function MyKundliScreen() {
   const t = COPY[language];
   const jyotish = account?.jyotishProfile;
   const birth = account?.birthProfile;
+  const replacementPending = Boolean(jyotish?.status === 'KUNDLI_READY' && birth?.input_fingerprint
+    && jyotish.input_fingerprint !== birth.input_fingerprint);
   const normalized = jyotish?.chart_data?.normalized || {};
   const canonicalValue = fact => fact?.status === 'AVAILABLE' ? fact : null;
   const lagna = canonicalValue(normalized.lagna);
   const moonSign = canonicalValue(normalized.moon_sign);
   const sunSign = canonicalValue(normalized.sun_sign);
   const nakshatra = canonicalValue(normalized.nakshatra);
-  const status = jyotish?.status || account?.onboardingStatus || 'KUNDLI_PENDING';
+  const hasReadyChart = jyotish?.status === 'KUNDLI_READY' && Boolean(jyotish?.chart_data?.normalized);
+  const currentReady = hasReadyChart && birth?.input_fingerprint
+    && jyotish.input_fingerprint === birth.input_fingerprint;
+  const status = replacementPending ? 'RECALCULATION_PENDING' : jyotish?.status || account?.onboardingStatus || 'KUNDLI_PENDING';
+  const canGenerate = isCanonicalBirthProfileReady(birth);
   const generate = async () => {
     setGenerating(true); setError(null);
-    try { await generatePrimaryKundli(); await load(); }
+    try { const result = await retryPrimaryKundli(); setAccount(result.account); }
     catch (e) { setError(e.code || e.message || 'KUNDLI_PROVIDER_UNAVAILABLE'); }
     finally { setGenerating(false); }
   };
   if (loading) return <View style={styles.center}><ActivityIndicator color="#F4A261" size="large" /></View>;
+  if (!account && error) return <View style={styles.center}><Text style={styles.emptyTitle}>Could not load your account.</Text><TouchableOpacity style={styles.primaryWide} onPress={load}><Text style={styles.primaryText}>Try Again</Text></TouchableOpacity></View>;
+  if (!hasReadyChart && !canGenerate) return <View style={[styles.root, { paddingTop: insets.top }]}>
+    <View style={styles.header}><TouchableOpacity onPress={() => router.back()} style={styles.touch}><Text style={styles.back}>‹</Text></TouchableOpacity><Text style={styles.title}>{t.title}</Text><View style={styles.touch} /></View>
+    <View style={styles.empty}><Text style={styles.emptyIcon}>🔯</Text><Text style={styles.emptyTitle}>{birth ? 'Your known birth details are saved.' : 'Create Your Kundli'}</Text>
+      <Text style={styles.warningText}>{birth ? 'Some Kundli calculations require your birth time. Add it when you know it.' : 'Add your birth details to create your personalized Kundli.'}</Text>
+      {account?.reconciliationError && <><Text style={styles.warningText}>{presentation.onboardingErrorMessage(account.reconciliationError)}</Text><TouchableOpacity style={styles.secondaryWide} onPress={load}><Text style={styles.secondaryText}>Try Again</Text></TouchableOpacity></>}
+      <TouchableOpacity style={styles.primaryWide} onPress={() => router.push('/birth_details')}><Text style={styles.primaryText}>{birth ? 'Edit Birth Details' : 'Create My Kundli'}</Text></TouchableOpacity></View>
+  </View>;
+  if (!hasReadyChart) {
+    const failed = status === 'PROVIDER_UNAVAILABLE' || Boolean(error);
+    return <View style={[styles.root, { paddingTop: insets.top }]}>
+      <View style={styles.header}><TouchableOpacity onPress={() => router.back()} style={styles.touch}><Text style={styles.back}>‹</Text></TouchableOpacity><Text style={styles.title}>{t.title}</Text><View style={styles.touch} /></View>
+      <View style={styles.empty}>{generating ? <ActivityIndicator color="#F4A261" size="large" /> : <Text style={styles.emptyIcon}>🔯</Text>}
+        <Text style={styles.emptyTitle}>{failed ? "We couldn't prepare your Kundli right now." : 'Preparing your Kundli...'}</Text>
+        {failed && <TouchableOpacity style={styles.primaryWide} onPress={generate} disabled={generating}><Text style={styles.primaryText}>Try Again</Text></TouchableOpacity>}
+        <TouchableOpacity style={styles.secondaryWide} onPress={() => router.push('/birth_details')}><Text style={styles.secondaryText}>Edit Birth Details</Text></TouchableOpacity>
+      </View>
+    </View>;
+  }
   const unavailable = <Text style={styles.muted}>{t.unavailable}</Text>;
   return <View style={[styles.root, { paddingTop: insets.top }]}>
     <View style={styles.header}>
@@ -78,14 +113,14 @@ export default function MyKundliScreen() {
     </View>
     <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 30 }]}
       refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor="#F4A261" />}>
-      {status !== 'KUNDLI_READY' && <View style={styles.warning}>
-        <Text style={styles.warningTitle}>{status.replaceAll('_', ' ')}</Text>
-        <Text style={styles.warningText}>{status === 'INPUT_CORRECTION_REQUIRED' ? t.correction : status === 'PROVIDER_UNAVAILABLE' || error ? t.provider : 'Kundli generation is pending.'}</Text>
+      {!currentReady && <View style={styles.warning}>
+        <Text style={styles.warningTitle}>Updated calculation pending</Text>
+        <Text style={styles.warningText}>Your previous valid Kundli is shown while the updated calculation is prepared.</Text>
         <View style={styles.actions}><TouchableOpacity style={styles.secondary} onPress={() => router.push('/birth_details')}><Text style={styles.secondaryText}>{t.edit}</Text></TouchableOpacity>
-          {status !== 'INPUT_CORRECTION_REQUIRED' && <TouchableOpacity style={styles.primary} onPress={generate} disabled={generating}>{generating ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{t.retry}</Text>}</TouchableOpacity>}</View>
+          {canGenerate && <TouchableOpacity style={styles.primary} onPress={generate} disabled={generating}>{generating ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{t.retry}</Text>}</TouchableOpacity>}</View>
       </View>}
       {birth?.birth_time_certainty && birth.birth_time_certainty !== 'EXACT' && <Text style={styles.precision}>{t.precision}</Text>}
-      <Section title="Overview"><Row label="Name" value={account?.profile?.name} /><Row label="Date" value={birth?.date_of_birth} /><Row label="Time" value={birth?.birth_time || 'Unknown'} /><Row label="Birthplace" value={birth?.place_name} /><Row label="Time certainty" value={birth?.birth_time_certainty} /><Row label="Status" value={status} /><Row label="Rashi" value={moonSign?.sign || t.unavailable} /><Row label="Sun sign" value={sunSign?.sign || t.unavailable} /><Row label="Lagna" value={lagna?.sign || t.unavailable} /><Row label="Nakshatra" value={nakshatra?.name || t.unavailable} /><Row label="Pada" value={nakshatra?.pada ?? t.unavailable} /></Section>
+      <Section title="Overview"><Row label="Name" value={account?.profile?.name} /><Row label="Date" value={birth?.date_of_birth} /><Row label="Time" value={birth?.birth_time || 'Unknown'} /><Row label="Birthplace" value={birth?.place_name} /><Row label="Time certainty" value={birth?.birth_time_certainty} /><Row label="Rashi" value={moonSign?.sign || t.unavailable} /><Row label="Sun sign" value={sunSign?.sign || t.unavailable} /><Row label="Lagna" value={lagna?.sign || t.unavailable} /><Row label="Nakshatra" value={nakshatra?.name || t.unavailable} /><Row label="Pada" value={nakshatra?.pada ?? t.unavailable} /></Section>
       <Section title="Chart — D1 / Rashi"><ProviderChart chart={normalized.charts?.d1?.data} unavailable={unavailable} /></Section>
       <Section title="Chart — D9 / Navamsha"><ProviderChart chart={normalized.charts?.d9?.data} unavailable={unavailable} /></Section>
       <Section title="Chart — Bhava"><ProviderChart chart={normalized.charts?.bhava?.data} unavailable={unavailable} /></Section>
@@ -107,5 +142,5 @@ export default function MyKundliScreen() {
 }
 
 const styles = StyleSheet.create({
-  root:{flex:1,backgroundColor:'#0D0500'},center:{flex:1,backgroundColor:'#0D0500',alignItems:'center',justifyContent:'center'},header:{height:58,flexDirection:'row',alignItems:'center',paddingHorizontal:14,borderBottomWidth:1,borderBottomColor:'rgba(244,162,97,.18)'},touch:{width:44,height:44,alignItems:'center',justifyContent:'center'},back:{fontSize:34,color:'#F4A261'},title:{flex:1,textAlign:'center',fontSize:20,fontWeight:'800',color:'#FDF6ED'},language:{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center'},languageText:{color:'#F4A261',fontWeight:'800'},content:{padding:16,gap:12},card:{backgroundColor:'#160A03',borderWidth:1,borderColor:'rgba(244,162,97,.16)',borderRadius:16,padding:16},sectionTitle:{fontSize:16,fontWeight:'800',color:'#F4A261',marginBottom:10},row:{flexDirection:'row',gap:12,paddingVertical:7,borderBottomWidth:1,borderBottomColor:'rgba(255,255,255,.05)'},label:{flex:1,color:'rgba(253,246,237,.55)'},value:{flex:1,color:'#FDF6ED',fontWeight:'600',textAlign:'right'},muted:{color:'rgba(253,246,237,.5)',lineHeight:20},body:{color:'#FDF6ED',lineHeight:21},available:{color:'#75C98B',fontWeight:'700'},chart:{height:320,backgroundColor:'transparent'},planet:{paddingVertical:8,borderBottomWidth:1,borderBottomColor:'rgba(255,255,255,.05)'},planetName:{color:'#FDF6ED',fontWeight:'700',marginBottom:3},warning:{backgroundColor:'rgba(212,145,40,.12)',borderColor:'rgba(244,162,97,.35)',borderWidth:1,borderRadius:16,padding:16},warningTitle:{color:'#F4A261',fontWeight:'800',marginBottom:7},warningText:{color:'#FDF6ED',lineHeight:20},precision:{color:'#FFD18A',backgroundColor:'rgba(255,183,77,.09)',padding:12,borderRadius:12,lineHeight:19},actions:{flexDirection:'row',gap:10,marginTop:14},primary:{flex:1,minHeight:46,borderRadius:12,backgroundColor:'#E8620A',alignItems:'center',justifyContent:'center'},primaryText:{color:'#fff',fontWeight:'800'},secondary:{flex:1,minHeight:46,borderRadius:12,borderWidth:1,borderColor:'#F4A261',alignItems:'center',justifyContent:'center',paddingHorizontal:8},secondaryText:{color:'#F4A261',fontWeight:'700',textAlign:'center'},editButton:{minHeight:48,borderRadius:14,backgroundColor:'#E8620A',alignItems:'center',justifyContent:'center'},editText:{color:'#fff',fontWeight:'800'},
+  root:{flex:1,backgroundColor:'#0D0500'},center:{flex:1,backgroundColor:'#0D0500',alignItems:'center',justifyContent:'center'},header:{height:58,flexDirection:'row',alignItems:'center',paddingHorizontal:14,borderBottomWidth:1,borderBottomColor:'rgba(244,162,97,.18)'},touch:{width:44,height:44,alignItems:'center',justifyContent:'center'},back:{fontSize:34,color:'#F4A261'},title:{flex:1,textAlign:'center',fontSize:20,fontWeight:'800',color:'#FDF6ED'},language:{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center'},languageText:{color:'#F4A261',fontWeight:'800'},empty:{flex:1,alignItems:'center',justifyContent:'center',padding:28,gap:16},emptyIcon:{fontSize:46},emptyTitle:{color:'#FDF6ED',fontSize:20,fontWeight:'800',lineHeight:28,textAlign:'center'},primaryWide:{minHeight:48,minWidth:220,borderRadius:14,backgroundColor:'#E8620A',alignItems:'center',justifyContent:'center',paddingHorizontal:18},secondaryWide:{minHeight:46,minWidth:220,borderRadius:14,borderWidth:1,borderColor:'#F4A261',alignItems:'center',justifyContent:'center',paddingHorizontal:18},content:{padding:16,gap:12},card:{backgroundColor:'#160A03',borderWidth:1,borderColor:'rgba(244,162,97,.16)',borderRadius:16,padding:16},sectionTitle:{fontSize:16,fontWeight:'800',color:'#F4A261',marginBottom:10},row:{flexDirection:'row',gap:12,paddingVertical:7,borderBottomWidth:1,borderBottomColor:'rgba(255,255,255,.05)'},label:{flex:1,color:'rgba(253,246,237,.55)'},value:{flex:1,color:'#FDF6ED',fontWeight:'600',textAlign:'right'},muted:{color:'rgba(253,246,237,.5)',lineHeight:20},body:{color:'#FDF6ED',lineHeight:21},available:{color:'#75C98B',fontWeight:'700'},chart:{height:320,backgroundColor:'transparent'},planet:{paddingVertical:8,borderBottomWidth:1,borderBottomColor:'rgba(255,255,255,.05)'},planetName:{color:'#FDF6ED',fontWeight:'700',marginBottom:3},warning:{backgroundColor:'rgba(212,145,40,.12)',borderColor:'rgba(244,162,97,.35)',borderWidth:1,borderRadius:16,padding:16},warningTitle:{color:'#F4A261',fontWeight:'800',marginBottom:7},warningText:{color:'#FDF6ED',lineHeight:20},precision:{color:'#FFD18A',backgroundColor:'rgba(255,183,77,.09)',padding:12,borderRadius:12,lineHeight:19},actions:{flexDirection:'row',gap:10,marginTop:14},primary:{flex:1,minHeight:46,borderRadius:12,backgroundColor:'#E8620A',alignItems:'center',justifyContent:'center'},primaryText:{color:'#fff',fontWeight:'800'},secondary:{flex:1,minHeight:46,borderRadius:12,borderWidth:1,borderColor:'#F4A261',alignItems:'center',justifyContent:'center',paddingHorizontal:8},secondaryText:{color:'#F4A261',fontWeight:'700',textAlign:'center'},editButton:{minHeight:48,borderRadius:14,backgroundColor:'#E8620A',alignItems:'center',justifyContent:'center'},editText:{color:'#fff',fontWeight:'800'},
 });
