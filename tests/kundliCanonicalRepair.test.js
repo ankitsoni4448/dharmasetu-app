@@ -67,7 +67,7 @@ test('save pipeline is canonical, retry avoids rewriting details, and logs are m
 });
 
 test('development build and route identity markers are present', () => {
-  assert.match(read('app/my_kundli.js'), /\[KundliBuild\] kundli-phase1-final-location-repair-20260921/);
+  assert.match(read('app/my_kundli.js'), /\[KundliBuild\] kundli-phase1-step3-confirm-fix-20260921/);
   assert.match(read('app/my_kundli.js'), /\[KundliRoute\] My Kundli mounted/);
   assert.match(read('app/birth_details.js'), /\[KundliFlow\] guided setup mounted/);
   assert.match(read('app/(tabs)/kundli.js'), /\[KundliRoute\] Kundli tab mounted/);

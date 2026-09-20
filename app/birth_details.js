@@ -10,10 +10,11 @@ import form from '../utils/kundliForm';
 import setup from '../utils/kundliSetup';
 const { onboardingErrorMessage } = presentation;
 const { MONTHS, canonicalDateFromParts, canonicalTimeFrom12Hour, datePartsFromCanonical, timePartsFromCanonical } = form;
-const { TIME_KNOWLEDGE, TIME_PERIODS, generationEligible, timePayload, validMapPoint } = setup;
+const { TIME_KNOWLEDGE, TIME_PERIODS, generationEligible, timePayload, validMapPoint, confirmMapLocation, isStep3Ready } = setup;
 
 const MAP_HTML = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><style>html,body,#map{height:100%;width:100%;margin:0;background:#efe4d5;overflow:hidden;overscroll-behavior:none}#map{touch-action:none}.leaflet-control-zoom a{width:40px;height:40px;line-height:40px;font-size:24px}</style></head><body><div id="map"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>const map=L.map('map',{dragging:true,touchZoom:true,scrollWheelZoom:true,doubleClickZoom:true,zoomControl:true,tap:true}).setView([22.8,79.5],4);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap'}).addTo(map);let marker;function showPoint(point,focus){const latlng=L.latLng(point.latitude,point.longitude);if(marker)marker.setLatLng(latlng);else marker=L.marker(latlng).addTo(map);if(focus)map.setView(latlng,Math.max(map.getZoom(),12));}window.setBirthplacePoint=point=>showPoint(point,true);map.on('click',e=>{const point={latitude:e.latlng.lat,longitude:e.latlng.lng,source:'USER_MAP_TAP'};showPoint(point,false);window.ReactNativeWebView.postMessage(JSON.stringify(point))});setTimeout(()=>map.invalidateSize(),100);</script></body></html>`;
 const Steps = ['Birth Date', 'Birth Time', 'Birthplace', 'Review & Create'];
+const locationLog = message => { if (typeof __DEV__ !== 'undefined' && __DEV__) console.log(`[KundliLocation] ${message}`); };
 
 export default function BirthDetailsScreen() {
   const insets = useSafeAreaInsets();
@@ -51,8 +52,9 @@ export default function BirthDetailsScreen() {
   const date = useMemo(() => canonicalDateFromParts(day, month, year), [day, month, year]);
   const clock = useMemo(() => canonicalTimeFrom12Hour(hour, minute, period), [hour, minute, period]);
   const time = timePayload(certainty, clock, timePeriod);
+  const placeContext = { villageCity, state: region, country };
   const placeContextValid = Boolean(villageCity.trim() && region.trim() && country.trim());
-  const placeValid = placeContextValid && validMapPoint(confirmedLocation);
+  const placeValid = isStep3Ready(confirmedLocation, placeContext);
   const validateStep = () => step === 0 ? Boolean(date && gender) : step === 1
     ? Boolean(certainty && (certainty === 'UNKNOWN' || (certainty === 'PERIOD_ONLY' ? timePeriod : clock)))
     : step === 2 ? placeValid : Boolean(consent);
@@ -74,9 +76,19 @@ export default function BirthDetailsScreen() {
     finally { setSearching(false); }
   };
   const confirmBirthplace = () => {
-    if (!placeContextValid || !validMapPoint(mapPoint)) return;
-    setConfirmedLocation({ latitude: mapPoint.latitude, longitude: mapPoint.longitude, source: 'MAP_CONFIRMED' });
+    locationLog('confirm pressed');
+    const validation = confirmMapLocation(mapPoint, placeContext);
+    locationLog(`confirm validation valid=${validation.valid} reason=${validation.reason || 'NONE'}`);
+    if (!validation.valid) {
+      const message = validation.reason === 'VILLAGE_CITY_REQUIRED' ? 'Enter the village, town, or city.'
+        : validation.reason === 'STATE_REQUIRED' ? 'Enter the state.'
+          : validation.reason === 'COUNTRY_REQUIRED' ? 'Enter the country.' : 'Select a valid point on the map.';
+      Alert.alert('Complete birthplace details', message); return;
+    }
+    setConfirmedLocation(validation.locationSelection);
     setLocationState('CONFIRMED');
+    locationLog(`confirmed source=MAP_CONFIRMED lat=${validation.locationSelection.latitude} lng=${validation.locationSelection.longitude}`);
+    locationLog('step3 ready=true');
   };
 
   const submit = async () => {
@@ -125,10 +137,11 @@ export default function BirthDetailsScreen() {
         <View style={styles.map} onTouchStart={() => setMapInteracting(true)} onTouchEnd={event => { if (!event.nativeEvent.touches?.length) setMapInteracting(false); }} onTouchCancel={() => setMapInteracting(false)}>
           <WebView ref={mapRef} source={{ html: MAP_HTML }} javaScriptEnabled nestedScrollEnabled scrollEnabled={false} androidLayerType="hardware" overScrollMode="never"
             originWhitelist={['*']} allowFileAccess={false} mixedContentMode="never" onLoadEnd={() => { if (validMapPoint(mapPoint)) showPointOnMap(mapPoint); }}
-            onMessage={event => { try { const point=JSON.parse(event.nativeEvent.data); if (point.source === 'USER_MAP_TAP' && validMapPoint(point)) { setMapPoint(point); setConfirmedLocation(null); setLocationState('SELECTED'); } } catch {} }} />
+            onMessage={event => { try { const point=JSON.parse(event.nativeEvent.data); if (point.source === 'USER_MAP_TAP' && validMapPoint(point)) { setMapPoint(point); setConfirmedLocation(null); setLocationState('SELECTED'); locationLog(`map candidate lat=${Number(point.latitude)} lng=${Number(point.longitude)}`); locationLog('step3 ready=false'); } } catch {} }} />
         </View>
         {validMapPoint(mapPoint) && <><Text style={styles.success}>{locationState === 'CONFIRMED' ? 'Birthplace selected' : 'Marker selected — confirm this birthplace.'}</Text><Text style={styles.coordinate}>{mapPoint.latitude.toFixed(5)}, {mapPoint.longitude.toFixed(5)}</Text>
-          {locationState !== 'CONFIRMED' && <TouchableOpacity style={styles.primary} onPress={confirmBirthplace}><Text style={styles.primaryText}>Confirm Birthplace</Text></TouchableOpacity>}</>}
+          {locationState !== 'CONFIRMED' && <><TouchableOpacity style={[styles.primary, !placeContextValid && styles.disabled]} disabled={!placeContextValid} onPress={confirmBirthplace}><Text style={styles.primaryText}>Confirm Birthplace</Text></TouchableOpacity>
+            {!placeContextValid && <Text style={styles.note}>Enter village/town/city, state, and country to confirm this point.</Text>}</>}</>}
       </View>}
       {step === 3 && <View style={styles.card}><Text style={styles.reviewTitle}>Review your birth details</Text><Review label="Date" value={date || 'Not entered'} /><Review label="Time" value={certainty === 'PERIOD_ONLY' ? TIME_PERIODS.find(([v]) => v === timePeriod)?.[1] : certainty === 'UNKNOWN' ? 'Unknown' : `${clock || ''} (${certainty.toLowerCase()})`} /><Review label="Birthplace" value={[villageCity,district,region,country].filter(Boolean).join(', ')} /><Review label="Location" value="Map marker confirmed" />
         <TouchableOpacity style={styles.consent} onPress={() => setConsent(v => !v)} accessibilityRole="checkbox" accessibilityState={{ checked: consent }}><Text style={styles.consentText}>{consent ? '[x]' : '[ ]'} I consent to saving these birth details and using them to prepare my Kundli.</Text></TouchableOpacity>

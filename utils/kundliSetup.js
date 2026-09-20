@@ -23,4 +23,16 @@ function validMapPoint(point) {
   return Number.isFinite(latitude) && latitude >= -90 && latitude <= 90
     && Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
 }
-module.exports = { TIME_KNOWLEDGE, TIME_PERIODS, generationEligible, timePayload, validMapPoint };
+function confirmMapLocation(point, context = {}) {
+  if (!validMapPoint(point)) return { valid: false, reason: 'INVALID_COORDINATES' };
+  for (const [key, reason] of [['villageCity', 'VILLAGE_CITY_REQUIRED'], ['state', 'STATE_REQUIRED'], ['country', 'COUNTRY_REQUIRED']]) {
+    if (typeof context[key] !== 'string' || !context[key].trim()) return { valid: false, reason };
+  }
+  return { valid: true, locationSelection: { source: 'MAP_CONFIRMED',
+    latitude: Number(point.latitude), longitude: Number(point.longitude) } };
+}
+function isStep3Ready(locationSelection, context) {
+  return confirmMapLocation(locationSelection, context).valid && locationSelection?.source === 'MAP_CONFIRMED';
+}
+module.exports = { TIME_KNOWLEDGE, TIME_PERIODS, generationEligible, timePayload, validMapPoint,
+  confirmMapLocation, isStep3Ready };
