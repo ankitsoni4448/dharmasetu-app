@@ -48,7 +48,7 @@ export default function MyKundliScreen() {
   const [language, setLanguage] = useState('english');
   useEffect(() => {
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
-      console.log('[KundliBuild] kundli-phase1-final-optional-onboarding-20260919');
+      console.log('[KundliBuild] kundli-phase1-final-location-repair-20260921');
       console.log('[KundliRoute] My Kundli mounted');
     }
   }, []);
