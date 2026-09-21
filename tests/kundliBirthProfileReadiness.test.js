@@ -37,9 +37,9 @@ test('primary routes and presentation use canonical account data only', () => {
   assert.match(tab, /MyKundliScreen/);
   assert.doesNotMatch(tab, /kundli_storage|kundli_account|FlatList|useFocusEffect/);
   assert.match(myKundli, /router\.push\('\/birth_details'\)/);
-  assert.match(myKundli, /fact\?\.status === 'AVAILABLE'/);
+  assert.match(myKundli, /const fact=x=>x\?\.status==='AVAILABLE'\?x:null/);
   assert.match(myKundli, /normalized\.charts\?\.d1\?\.data/);
-  assert.match(myKundli, /normalized\.houses\?\.status === 'AVAILABLE'/);
+  assert.match(myKundli, /houses\?\.status === 'AVAILABLE'/);
   assert.doesNotMatch(myKundli, /kundli_calc|calculateKundli/);
 });
 

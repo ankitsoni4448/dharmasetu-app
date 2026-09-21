@@ -26,8 +26,7 @@ test('profile edits the one canonical birth form, not another Kundli', () => {
 
 test('stale authoritative chart stays visible while replacement is pending', () => {
   const kundli = source('app/my_kundli.js');
-  assert.match(kundli, /jyotish\.input_fingerprint !== birth\.input_fingerprint/);
-  assert.match(kundli, /previous valid Kundli is shown while the updated calculation is prepared/);
+  assert.match(kundli, /!currentReady[\s\S]*previous valid Kundli is shown/);
   assert.match(kundli, /normalized\.charts\?\.d1\?\.data/);
   assert.doesNotMatch(kundli, /kundli_calc|calculateKundli/);
 });

@@ -39,7 +39,7 @@ test('search failure falls back to map and explicit confirmation gates submissio
 });
 
 test('location repair build marker is present', () => {
-  assert.match(read('app/my_kundli.js'), /\[KundliBuild\] kundli-phase1-step3-confirm-fix-20260921/);
+  assert.match(read('app/my_kundli.js'), /\[KundliBuild\] kundli-phase1-final-complete-20260921/);
 });
 
 test('manual candidate requires explicit confirmation and then makes step 3 ready', () => {

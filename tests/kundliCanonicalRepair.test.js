@@ -49,10 +49,8 @@ test('Home and tab use canonical My Kundli without legacy primary ownership', ()
 
 test('incomplete My Kundli returns a focused state before advanced sections', () => {
   const screen = read('app/my_kundli.js');
-  const incomplete = screen.indexOf('Create Your Kundli');
-  const advanced = screen.indexOf('<Section title="Overview">');
-  assert.ok(incomplete > -1 && advanced > incomplete);
-  assert.match(screen.slice(0, advanced), /if \(!hasReadyChart && !canGenerate\) return/);
+  assert.match(screen, /if\(!hasReady&&!canGenerate\)return[\s\S]*Create Your Kundli/);
+  assert.match(screen, /if\(!hasReady\)return[\s\S]*Preparing your Kundli/);
   assert.match(screen, /jyotish\?\.chart_data\?\.normalized/);
 });
 
@@ -67,7 +65,7 @@ test('save pipeline is canonical, retry avoids rewriting details, and logs are m
 });
 
 test('development build and route identity markers are present', () => {
-  assert.match(read('app/my_kundli.js'), /\[KundliBuild\] kundli-phase1-step3-confirm-fix-20260921/);
+  assert.match(read('app/my_kundli.js'), /\[KundliBuild\] kundli-phase1-final-complete-20260921/);
   assert.match(read('app/my_kundli.js'), /\[KundliRoute\] My Kundli mounted/);
   assert.match(read('app/birth_details.js'), /\[KundliFlow\] guided setup mounted/);
   assert.match(read('app/(tabs)/kundli.js'), /\[KundliRoute\] Kundli tab mounted/);

@@ -6,141 +6,70 @@ import { WebView } from 'react-native-webview';
 import { restoreAccountLifecycle, retryPrimaryKundli } from '../utils/accountLifecycle';
 import readiness from '../utils/kundliReadiness';
 import presentation from '../utils/accountBirthPresentation';
-
+import kp from '../utils/kundliPresentation';
 const { isCanonicalBirthProfileReady } = readiness;
+const { HOUSE_EDUCATION, friendlyDate, friendlyTime, certaintyPresentation, planetDisplay, lifeAreaCards, signLabel } = kp;
 
-const COPY = {
-  english: { title: 'My Kundli', retry: 'Retry', edit: 'Edit birth details', unavailable: 'Not supplied by the calculation provider.',
-    correction: 'Your birth details need correction before an authoritative Kundli can be generated.',
-    provider: 'The calculation provider is temporarily unavailable. No fallback chart has been created.',
-    precision: 'Birth time is not exact. Lagna, houses, Vargas and precise Dasha timing may vary.',
-    interpretation: 'Traditional Vedic Jyotish interpretation; calculated chart facts and interpretation are shown separately.' },
-  hindi: { title: 'मेरी कुंडली', retry: 'फिर प्रयास करें', edit: 'जन्म विवरण बदलें', unavailable: 'गणना प्रदाता ने यह जानकारी उपलब्ध नहीं कराई।',
-    correction: 'प्रामाणिक कुंडली बनाने से पहले जन्म विवरण सुधारना आवश्यक है।',
-    provider: 'गणना सेवा अभी उपलब्ध नहीं है। कोई अनुमानित कुंडली नहीं बनाई गई है।',
-    precision: 'जन्म समय सटीक नहीं है। लग्न, भाव, वर्ग और दशा का समय बदल सकता है।',
-    interpretation: 'यह पारंपरिक वैदिक ज्योतिष व्याख्या है; गणना तथ्य और व्याख्या अलग रखे गए हैं।' },
-};
-
-function valueName(value) {
-  if (typeof value === 'string' || typeof value === 'number') return String(value);
-  return value?.name || value?.value || null;
+function Section({ title, subtitle, children }) { return <View style={s.card}><Text style={s.sectionTitle}>{title}</Text>{subtitle ? <Text style={s.subtitle}>{subtitle}</Text> : null}{children}</View>; }
+function Row({ label, value }) { return value === null || value === undefined || value === '' ? null : <View style={s.row}><Text style={s.label}>{label}</Text><Text style={s.value}>{String(value)}</Text></View>; }
+function Header() { return <View style={s.header}><TouchableOpacity onPress={() => router.back()} style={s.touch}><Text style={s.back}>‹</Text></TouchableOpacity><Text style={s.title}>My Kundli</Text><View style={s.touch} /></View>; }
+function AtAGlance({ moon, lagna, nakshatra, sun }) {
+  const facts = [
+    ['Rashi / Moon Sign', signLabel(moon?.sign), 'Your Rashi is the zodiac sign occupied by the Moon at birth.'],
+    ['Lagna / Ascendant', signLabel(lagna?.sign), 'Lagna is the rising sign and forms the starting point of the houses in your birth chart.'],
+    ['Nakshatra / Birth Star', nakshatra?.name, 'Nakshatra is the lunar constellation occupied by the Moon at birth.'],
+    ['Pada', nakshatra?.pada, 'Each Nakshatra is divided into four sections called Padas.'],
+    ['Sun Sign', signLabel(sun?.sign), 'Your Sun sign is the zodiac sign occupied by the Sun at birth.'],
+  ].filter(([, value]) => value !== null && value !== undefined && value !== '');
+  return <Section title="Your Kundli at a Glance">{facts.map(([label, value, help]) => <View key={label} style={s.fact}><Text style={s.factLabel}>{label}</Text><Text style={s.factValue}>{value}</Text><Text style={s.help}>{help}</Text></View>)}</Section>;
 }
-function Section({ title, children }) { return <View style={styles.card}><Text style={styles.sectionTitle}>{title}</Text>{children}</View>; }
-function Row({ label, value }) {
-  if (value === null || value === undefined || value === '') return null;
-  return <View style={styles.row}><Text style={styles.label}>{label}</Text><Text style={styles.value}>{valueName(value)}</Text></View>;
+function ProviderChart({ chart }) {
+  if (chart?.format !== 'svg' || typeof chart.content !== 'string' || !/^\s*(?:<\?xml[^>]*>\s*)?<svg\b/i.test(chart.content)) return null;
+  const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html,body{margin:0;background:#FFF8EE}svg{width:100%;height:auto;display:block;background:#FFF8EE}svg line,svg polyline,svg polygon{stroke:#5A210B!important;stroke-width:2!important}svg text{fill:#321306!important;font-family:Arial,sans-serif!important;font-weight:700!important;font-size:17px!important}</style></head><body>${chart.content}</body></html>`;
+  return <WebView source={{ html }} style={s.chart} javaScriptEnabled={false} domStorageEnabled={false} originWhitelist={['about:blank']} allowFileAccess={false} allowUniversalAccessFromFileURLs={false} mixedContentMode="never" scrollEnabled={false} />;
 }
-function ProviderChart({ chart, unavailable }) {
-  if (chart?.format !== 'svg' || typeof chart.content !== 'string' || !/^\s*(?:<\?xml[^>]*>\s*)?<svg\b/i.test(chart.content)) return unavailable;
-  const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:"><style>html,body{margin:0;background:transparent}svg{width:100%;height:auto;display:block}</style></head><body>${chart.content}</body></html>`;
-  return <WebView source={{ html }} style={styles.chart} javaScriptEnabled={false} domStorageEnabled={false}
-    originWhitelist={['about:blank']} allowFileAccess={false} allowUniversalAccessFromFileURLs={false}
-    mixedContentMode="never" scrollEnabled={false} />;
+function LifeAreas({ areas }) { return !areas.length ? null : <Section title="Understand My Kundli" subtitle="These are factual, evidence-based parts of your calculated chart. They are not guarantees or predictions.">{areas.map(area => <View key={area.id} style={s.lifeCard}><Text style={s.lifeTitle}>{area.title}</Text>{area.text.map((line, i) => <Text key={i} style={s.body}>{line}</Text>)}{area.disclaimer ? <Text style={s.disclaimer}>{area.disclaimer}</Text> : null}<Text style={s.evidence}>Evidence confidence: {String(area.confidence || 'limited').toLowerCase()}</Text></View>)}</Section>; }
+function PlanetSummary({ planets }) { return !Array.isArray(planets) || !planets.length ? null : <Section title="Planets / Graha" subtitle="Calculated planetary positions in your birth chart.">{planets.map(planet => { const p = planetDisplay(planet); return <View key={planet.id || planet.name} style={s.planet}><Text style={s.planetName}>{p.name}</Text><Text style={s.planetPrimary}>{p.sign}</Text><Text style={s.muted}>{[p.house, p.degree ? `${p.degree} within ${planet.sign}` : null].filter(Boolean).join(' · ')}</Text></View>; })}</Section>; }
+function Houses({ houses }) { const calculated = houses?.status === 'AVAILABLE' ? houses.items || [] : []; return <Section title="The 12 Houses" subtitle="House meanings are general Jyotish education. Calculated sign, lord and occupants appear only when available.">{HOUSE_EDUCATION.map(([number, meaning]) => { const house = calculated.find(item => Number(item.number) === number); return <View key={number} style={s.house}><Text style={s.houseTitle}>House {number}</Text><Text style={s.houseMeaning}>{meaning}</Text>{house ? <Text style={s.muted}>{[house.sign, house.lord ? `Lord: ${house.lord}` : null, house.occupants?.length ? `Occupants: ${house.occupants.join(', ')}` : null].filter(Boolean).join(' · ')}</Text> : null}</View>; })}</Section>; }
+function periodName(period) { return typeof period === 'string' ? period : period?.name || period?.planet || null; }
+function Advanced({ normalized }) {
+  const [open, setOpen] = useState(false); const d9 = normalized.charts?.d9?.status === 'AVAILABLE' ? normalized.charts.d9.data : null; const bhava = normalized.charts?.bhava?.status === 'AVAILABLE' ? normalized.charts.bhava.data : null;
+  const dasha = normalized.dasha?.status === 'AVAILABLE' && (normalized.dasha.mahadasha || normalized.dasha.antardasha) ? normalized.dasha : null;
+  const yogas = Array.isArray(normalized.yogas) ? normalized.yogas.filter(x => x?.status === 'AVAILABLE' && x?.name) : [];
+  const doshas = Array.isArray(normalized.doshas) ? normalized.doshas.filter(x => x?.status === 'AVAILABLE' && x?.name) : [];
+  const aspects = normalized.aspects?.status === 'AVAILABLE' ? normalized.aspects.items || [] : [];
+  const conditions = normalized.structural_conditions?.status === 'AVAILABLE' ? (normalized.structural_conditions.items || []).filter(x => x.conditions?.length) : [];
+  return <View style={s.card}><TouchableOpacity style={s.toggle} onPress={() => setOpen(v => !v)} accessibilityRole="button" accessibilityState={{ expanded: open }}><Text style={s.sectionTitle}>Advanced Kundli Details</Text><Text style={s.toggleText}>{open ? 'Hide' : 'Show'}</Text></TouchableOpacity>{open && <View>
+    {dasha && <View style={s.group}><Text style={s.advancedTitle}>Current Dasha</Text><Row label="Mahadasha" value={periodName(dasha.mahadasha)} /><Row label="Antardasha" value={periodName(dasha.antardasha)} /></View>}
+    {yogas.length > 0 && <View style={s.group}><Text style={s.advancedTitle}>Calculated Yogas</Text>{yogas.map((x,i) => <Text key={`${x.name}-${i}`} style={s.body}>• {x.name}</Text>)}</View>}
+    {doshas.length > 0 && <View style={s.group}><Text style={s.advancedTitle}>Calculated Doshas</Text>{doshas.map((x,i) => <Text key={`${x.name}-${i}`} style={s.body}>• {x.name}</Text>)}</View>}
+    {aspects.length > 0 && <View style={s.group}><Text style={s.advancedTitle}>Classical Graha Aspects</Text>{aspects.map((x,i) => <Text key={i} style={s.body}>• {x.source_planet} → House {x.target_house}</Text>)}</View>}
+    {conditions.length > 0 && <View style={s.group}><Text style={s.advancedTitle}>Structural Conditions</Text>{conditions.map(x => <Text key={x.planet} style={s.body}>• {x.planet}: {x.conditions.join(', ')}</Text>)}</View>}
+    <View style={s.group}><Text style={s.advancedTitle}>Navamsha (D9)</Text>{d9 ? <ProviderChart chart={d9} /> : <Text style={s.muted}>Navamsha chart is not available for this Kundli.</Text>}</View>
+    <View style={s.group}><Text style={s.advancedTitle}>Bhava Chart</Text>{bhava ? <ProviderChart chart={bhava} /> : <Text style={s.muted}>Bhava chart is not available for this Kundli.</Text>}</View>
+  </View>}</View>;
 }
 
 export default function MyKundliScreen() {
-  const insets = useSafeAreaInsets();
-  const [account, setAccount] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
-  const [error, setError] = useState(null);
-  const [language, setLanguage] = useState('english');
-  useEffect(() => {
-    if (typeof __DEV__ !== 'undefined' && __DEV__) {
-      console.log('[KundliBuild] kundli-phase1-step3-confirm-fix-20260921');
-      console.log('[KundliRoute] My Kundli mounted');
-    }
-  }, []);
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      const result = await restoreAccountLifecycle({ reconcile: true });
-      setAccount(result);
-      setLanguage(result.profile?.language === 'hindi' ? 'hindi' : 'english');
-    } catch (e) { setError(e.code || e.message || 'ACCOUNT_RESTORE_FAILED'); }
-    finally { setLoading(false); }
-  }, []);
-  useEffect(() => { load(); }, [load]);
-  const t = COPY[language];
-  const jyotish = account?.jyotishProfile;
-  const birth = account?.birthProfile;
-  const replacementPending = Boolean(jyotish?.status === 'KUNDLI_READY' && birth?.input_fingerprint
-    && jyotish.input_fingerprint !== birth.input_fingerprint);
-  const normalized = jyotish?.chart_data?.normalized || {};
-  const canonicalValue = fact => fact?.status === 'AVAILABLE' ? fact : null;
-  const lagna = canonicalValue(normalized.lagna);
-  const moonSign = canonicalValue(normalized.moon_sign);
-  const sunSign = canonicalValue(normalized.sun_sign);
-  const nakshatra = canonicalValue(normalized.nakshatra);
-  const hasReadyChart = jyotish?.status === 'KUNDLI_READY' && Boolean(jyotish?.chart_data?.normalized);
-  const currentReady = hasReadyChart && birth?.input_fingerprint
-    && jyotish.input_fingerprint === birth.input_fingerprint;
-  const status = replacementPending ? 'RECALCULATION_PENDING' : jyotish?.status || account?.onboardingStatus || 'KUNDLI_PENDING';
-  const canGenerate = isCanonicalBirthProfileReady(birth);
-  const generate = async () => {
-    setGenerating(true); setError(null);
-    try { const result = await retryPrimaryKundli(); setAccount(result.account); }
-    catch (e) { setError(e.code || e.message || 'KUNDLI_PROVIDER_UNAVAILABLE'); }
-    finally { setGenerating(false); }
-  };
-  if (loading) return <View style={styles.center}><ActivityIndicator color="#F4A261" size="large" /></View>;
-  if (!account && error) return <View style={styles.center}><Text style={styles.emptyTitle}>Could not load your account.</Text><TouchableOpacity style={styles.primaryWide} onPress={load}><Text style={styles.primaryText}>Try Again</Text></TouchableOpacity></View>;
-  if (!hasReadyChart && !canGenerate) return <View style={[styles.root, { paddingTop: insets.top }]}>
-    <View style={styles.header}><TouchableOpacity onPress={() => router.back()} style={styles.touch}><Text style={styles.back}>‹</Text></TouchableOpacity><Text style={styles.title}>{t.title}</Text><View style={styles.touch} /></View>
-    <View style={styles.empty}><Text style={styles.emptyIcon}>🔯</Text><Text style={styles.emptyTitle}>{birth ? 'Your known birth details are saved.' : 'Create Your Kundli'}</Text>
-      <Text style={styles.warningText}>{birth ? 'Some Kundli calculations require your birth time. Add it when you know it.' : 'Add your birth details to create your personalized Kundli.'}</Text>
-      {account?.reconciliationError && <><Text style={styles.warningText}>{presentation.onboardingErrorMessage(account.reconciliationError)}</Text><TouchableOpacity style={styles.secondaryWide} onPress={load}><Text style={styles.secondaryText}>Try Again</Text></TouchableOpacity></>}
-      <TouchableOpacity style={styles.primaryWide} onPress={() => router.push('/birth_details')}><Text style={styles.primaryText}>{birth ? 'Edit Birth Details' : 'Create My Kundli'}</Text></TouchableOpacity></View>
-  </View>;
-  if (!hasReadyChart) {
-    const failed = status === 'PROVIDER_UNAVAILABLE' || Boolean(error);
-    return <View style={[styles.root, { paddingTop: insets.top }]}>
-      <View style={styles.header}><TouchableOpacity onPress={() => router.back()} style={styles.touch}><Text style={styles.back}>‹</Text></TouchableOpacity><Text style={styles.title}>{t.title}</Text><View style={styles.touch} /></View>
-      <View style={styles.empty}>{generating ? <ActivityIndicator color="#F4A261" size="large" /> : <Text style={styles.emptyIcon}>🔯</Text>}
-        <Text style={styles.emptyTitle}>{failed ? "We couldn't prepare your Kundli right now." : 'Preparing your Kundli...'}</Text>
-        {failed && <TouchableOpacity style={styles.primaryWide} onPress={generate} disabled={generating}><Text style={styles.primaryText}>Try Again</Text></TouchableOpacity>}
-        <TouchableOpacity style={styles.secondaryWide} onPress={() => router.push('/birth_details')}><Text style={styles.secondaryText}>Edit Birth Details</Text></TouchableOpacity>
-      </View>
-    </View>;
-  }
-  const unavailable = <Text style={styles.muted}>{t.unavailable}</Text>;
-  return <View style={[styles.root, { paddingTop: insets.top }]}>
-    <View style={styles.header}>
-      <TouchableOpacity onPress={() => router.back()} style={styles.touch}><Text style={styles.back}>‹</Text></TouchableOpacity>
-      <Text style={styles.title}>{t.title}</Text>
-      <TouchableOpacity onPress={() => setLanguage(v => v === 'hindi' ? 'english' : 'hindi')} style={styles.language}><Text style={styles.languageText}>{language === 'hindi' ? 'EN' : 'हिं'}</Text></TouchableOpacity>
-    </View>
-    <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 30 }]}
-      refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor="#F4A261" />}>
-      {!currentReady && <View style={styles.warning}>
-        <Text style={styles.warningTitle}>Updated calculation pending</Text>
-        <Text style={styles.warningText}>Your previous valid Kundli is shown while the updated calculation is prepared.</Text>
-        <View style={styles.actions}><TouchableOpacity style={styles.secondary} onPress={() => router.push('/birth_details')}><Text style={styles.secondaryText}>{t.edit}</Text></TouchableOpacity>
-          {canGenerate && <TouchableOpacity style={styles.primary} onPress={generate} disabled={generating}>{generating ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryText}>{t.retry}</Text>}</TouchableOpacity>}</View>
-      </View>}
-      {birth?.birth_time_certainty && birth.birth_time_certainty !== 'EXACT' && <Text style={styles.precision}>{t.precision}</Text>}
-      <Section title="Overview"><Row label="Name" value={account?.profile?.name} /><Row label="Date" value={birth?.date_of_birth} /><Row label="Time" value={birth?.birth_time || 'Unknown'} /><Row label="Birthplace" value={birth?.place_name} /><Row label="Time certainty" value={birth?.birth_time_certainty} /><Row label="Rashi" value={moonSign?.sign || t.unavailable} /><Row label="Sun sign" value={sunSign?.sign || t.unavailable} /><Row label="Lagna" value={lagna?.sign || t.unavailable} /><Row label="Nakshatra" value={nakshatra?.name || t.unavailable} /><Row label="Pada" value={nakshatra?.pada ?? t.unavailable} /></Section>
-      <Section title="Chart — D1 / Rashi"><ProviderChart chart={normalized.charts?.d1?.data} unavailable={unavailable} /></Section>
-      <Section title="Chart — D9 / Navamsha"><ProviderChart chart={normalized.charts?.d9?.data} unavailable={unavailable} /></Section>
-      <Section title="Chart — Bhava"><ProviderChart chart={normalized.charts?.bhava?.data} unavailable={unavailable} /></Section>
-      <Section title="Graha">{normalized.planets?.length ? normalized.planets.map(p => <View key={p.name} style={styles.planet}><Text style={styles.planetName}>{p.name}</Text><Text style={styles.muted}>{[p.sign, p.longitude != null ? `${p.longitude}°` : null, p.house != null ? `House ${p.house}` : null].filter(Boolean).join(' · ')}</Text></View>) : unavailable}</Section>
-      <Section title="Houses / Bhava">{normalized.houses?.status === 'AVAILABLE' && normalized.houses.items?.length
-        ? normalized.houses.items.map(h => <Row key={h.number} label={`House ${h.number}`}
-          value={[h.sign, h.lord ? `Lord: ${h.lord}` : null, h.occupants?.length ? `Occupants: ${h.occupants.join(', ')}` : null].filter(Boolean).join(' · ')} />)
-        : unavailable}</Section>
-      <Section title="Dasha"><Row label="Mahadasha" value={jyotish?.compact_context?.currentMahadasha} /><Row label="Antardasha" value={jyotish?.compact_context?.currentAntardasha} />{!normalized.dasha && unavailable}</Section>
-      <Section title="Yogas">{normalized.yogas?.length ? normalized.yogas.map((item, i) => <Text key={i} style={styles.body}>• {valueName(item)}</Text>) : unavailable}</Section>
-      <Section title="Doshas">{normalized.doshas ? <Text style={styles.body}>{valueName(normalized.doshas) || 'Provider data available'}</Text> : unavailable}</Section>
-      {normalized.moduleStatus && Object.keys(normalized.moduleStatus).length > 0 && <Section title="Provider modules">
-        {Object.entries(normalized.moduleStatus).map(([name, moduleState]) => <Row key={name} label={name} value={moduleState} />)}
-      </Section>}
-      <Section title="Interpretation"><Text style={styles.body}>{t.interpretation}</Text><Text style={styles.muted}>Detailed interpretation is available only for calculated facts supplied by the authoritative backend record.</Text></Section>
-      <TouchableOpacity style={styles.editButton} onPress={() => router.push('/birth_details')}><Text style={styles.editText}>{t.edit}</Text></TouchableOpacity>
-    </ScrollView>
-  </View>;
+  const insets = useSafeAreaInsets(); const [account,setAccount] = useState(null); const [loading,setLoading] = useState(true); const [generating,setGenerating] = useState(false); const [error,setError] = useState(null);
+  useEffect(() => { if (typeof __DEV__ !== 'undefined' && __DEV__) { console.log('[KundliBuild] kundli-phase1-final-complete-20260921'); console.log('[KundliRoute] My Kundli mounted'); } }, []);
+  const load = useCallback(async () => { setError(null); try { setAccount(await restoreAccountLifecycle({ reconcile:true })); } catch(e) { setError(e.code || e.message || 'ACCOUNT_RESTORE_FAILED'); } finally { setLoading(false); } }, []); useEffect(() => { load(); }, [load]);
+  const jyotish=account?.jyotishProfile, birth=account?.birthProfile, normalized=jyotish?.chart_data?.normalized||{}; const fact=x=>x?.status==='AVAILABLE'?x:null;
+  const lagna=fact(normalized.lagna), moon=fact(normalized.moon_sign), sun=fact(normalized.sun_sign), nakshatra=fact(normalized.nakshatra);
+  const hasReady=jyotish?.status==='KUNDLI_READY'&&Boolean(jyotish?.chart_data?.normalized); const currentReady=hasReady&&birth?.input_fingerprint&&jyotish.input_fingerprint===birth.input_fingerprint; const canGenerate=isCanonicalBirthProfileReady(birth); const certainty=certaintyPresentation(birth?.birth_time_certainty,birth?.birth_time_period);
+  const generate=async()=>{setGenerating(true);setError(null);try{const result=await retryPrimaryKundli();setAccount(result.account);}catch(e){setError(e.code||e.message||'KUNDLI_PROVIDER_UNAVAILABLE');}finally{setGenerating(false);}};
+  if(loading)return <View style={s.center}><ActivityIndicator color="#F4A261" size="large"/></View>;
+  if(!account&&error)return <View style={s.center}><Text style={s.emptyTitle}>Could not load your account.</Text><TouchableOpacity style={s.primaryWide} onPress={load}><Text style={s.primaryText}>Try Again</Text></TouchableOpacity></View>;
+  if(!hasReady&&!canGenerate)return <View style={[s.root,{paddingTop:insets.top}]}><Header/><View style={s.empty}><Text style={s.emptyIcon}>🔯</Text><Text style={s.emptyTitle}>{birth?'Your known birth details are saved.':'Create Your Kundli'}</Text><Text style={s.warningText}>{birth?'Some Kundli calculations require your birth time. Add it when you know it.':'Add your birth details to create your personalized Kundli.'}</Text>{account?.reconciliationError&&<Text style={s.warningText}>{presentation.onboardingErrorMessage(account.reconciliationError)}</Text>}<TouchableOpacity style={s.primaryWide} onPress={()=>router.push('/birth_details')}><Text style={s.primaryText}>{birth?'Edit Birth Details':'Create My Kundli'}</Text></TouchableOpacity></View></View>;
+  if(!hasReady)return <View style={[s.root,{paddingTop:insets.top}]}><Header/><View style={s.empty}>{generating?<ActivityIndicator color="#F4A261" size="large"/>:<Text style={s.emptyIcon}>🔯</Text>}<Text style={s.emptyTitle}>{error?"We couldn't prepare your Kundli right now.":'Preparing your Kundli...'}</Text>{error&&<TouchableOpacity style={s.primaryWide} onPress={generate}><Text style={s.primaryText}>Try Again</Text></TouchableOpacity>}<TouchableOpacity style={s.secondaryWide} onPress={()=>router.push('/birth_details')}><Text style={s.secondaryText}>Edit Birth Details</Text></TouchableOpacity></View></View>;
+  return <View style={[s.root,{paddingTop:insets.top}]}><Header/><ScrollView contentContainerStyle={[s.content,{paddingBottom:insets.bottom+90}]} refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor="#F4A261"/>}>
+    {!currentReady&&<View style={s.warning}><Text style={s.warningTitle}>Updated calculation pending</Text><Text style={s.warningText}>Your previous valid Kundli is shown while the updated calculation is prepared.</Text><View style={s.actions}><TouchableOpacity style={s.secondary} onPress={()=>router.push('/birth_details')}><Text style={s.secondaryText}>Edit birth details</Text></TouchableOpacity>{canGenerate&&<TouchableOpacity style={s.primary} onPress={generate}><Text style={s.primaryText}>Retry</Text></TouchableOpacity>}</View></View>}
+    <Section title="Birth Profile"><Row label="Name" value={account?.profile?.name}/><Row label="Birth date" value={friendlyDate(birth?.date_of_birth)}/><Row label="Birth time" value={birth?.birth_time?friendlyTime(birth.birth_time):certainty.label}/><Row label="Time accuracy" value={certainty.label}/><Row label="Birthplace" value={birth?.place_name}/>{certainty.note&&<Text style={s.precision}>{certainty.note}</Text>}</Section>
+    <AtAGlance moon={moon} lagna={lagna} nakshatra={nakshatra} sun={sun}/>
+    <Section title="Your Birth Chart (D1 / Rashi)" subtitle="What is this? The D1 or Rashi chart is the primary birth chart used in Vedic Jyotish. It shows the zodiac signs and planetary positions calculated from your birth details."><ProviderChart chart={normalized.charts?.d1?.data}/></Section>
+    <LifeAreas areas={lifeAreaCards(normalized.life_areas)}/><PlanetSummary planets={normalized.planets}/><Houses houses={normalized.houses}/><Advanced normalized={normalized}/>
+    <TouchableOpacity style={s.editButton} onPress={()=>router.push('/birth_details')}><Text style={s.editText}>Edit Birth Details</Text></TouchableOpacity>
+  </ScrollView></View>;
 }
 
-const styles = StyleSheet.create({
-  root:{flex:1,backgroundColor:'#0D0500'},center:{flex:1,backgroundColor:'#0D0500',alignItems:'center',justifyContent:'center'},header:{height:58,flexDirection:'row',alignItems:'center',paddingHorizontal:14,borderBottomWidth:1,borderBottomColor:'rgba(244,162,97,.18)'},touch:{width:44,height:44,alignItems:'center',justifyContent:'center'},back:{fontSize:34,color:'#F4A261'},title:{flex:1,textAlign:'center',fontSize:20,fontWeight:'800',color:'#FDF6ED'},language:{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center'},languageText:{color:'#F4A261',fontWeight:'800'},empty:{flex:1,alignItems:'center',justifyContent:'center',padding:28,gap:16},emptyIcon:{fontSize:46},emptyTitle:{color:'#FDF6ED',fontSize:20,fontWeight:'800',lineHeight:28,textAlign:'center'},primaryWide:{minHeight:48,minWidth:220,borderRadius:14,backgroundColor:'#E8620A',alignItems:'center',justifyContent:'center',paddingHorizontal:18},secondaryWide:{minHeight:46,minWidth:220,borderRadius:14,borderWidth:1,borderColor:'#F4A261',alignItems:'center',justifyContent:'center',paddingHorizontal:18},content:{padding:16,gap:12},card:{backgroundColor:'#160A03',borderWidth:1,borderColor:'rgba(244,162,97,.16)',borderRadius:16,padding:16},sectionTitle:{fontSize:16,fontWeight:'800',color:'#F4A261',marginBottom:10},row:{flexDirection:'row',gap:12,paddingVertical:7,borderBottomWidth:1,borderBottomColor:'rgba(255,255,255,.05)'},label:{flex:1,color:'rgba(253,246,237,.55)'},value:{flex:1,color:'#FDF6ED',fontWeight:'600',textAlign:'right'},muted:{color:'rgba(253,246,237,.5)',lineHeight:20},body:{color:'#FDF6ED',lineHeight:21},available:{color:'#75C98B',fontWeight:'700'},chart:{height:320,backgroundColor:'transparent'},planet:{paddingVertical:8,borderBottomWidth:1,borderBottomColor:'rgba(255,255,255,.05)'},planetName:{color:'#FDF6ED',fontWeight:'700',marginBottom:3},warning:{backgroundColor:'rgba(212,145,40,.12)',borderColor:'rgba(244,162,97,.35)',borderWidth:1,borderRadius:16,padding:16},warningTitle:{color:'#F4A261',fontWeight:'800',marginBottom:7},warningText:{color:'#FDF6ED',lineHeight:20},precision:{color:'#FFD18A',backgroundColor:'rgba(255,183,77,.09)',padding:12,borderRadius:12,lineHeight:19},actions:{flexDirection:'row',gap:10,marginTop:14},primary:{flex:1,minHeight:46,borderRadius:12,backgroundColor:'#E8620A',alignItems:'center',justifyContent:'center'},primaryText:{color:'#fff',fontWeight:'800'},secondary:{flex:1,minHeight:46,borderRadius:12,borderWidth:1,borderColor:'#F4A261',alignItems:'center',justifyContent:'center',paddingHorizontal:8},secondaryText:{color:'#F4A261',fontWeight:'700',textAlign:'center'},editButton:{minHeight:48,borderRadius:14,backgroundColor:'#E8620A',alignItems:'center',justifyContent:'center'},editText:{color:'#fff',fontWeight:'800'},
-});
+const s=StyleSheet.create({root:{flex:1,backgroundColor:'#0D0500'},center:{flex:1,backgroundColor:'#0D0500',alignItems:'center',justifyContent:'center',padding:24},header:{height:58,flexDirection:'row',alignItems:'center',paddingHorizontal:14,borderBottomWidth:1,borderBottomColor:'rgba(244,162,97,.18)'},touch:{width:44,height:44,alignItems:'center',justifyContent:'center'},back:{fontSize:34,color:'#F4A261'},title:{flex:1,textAlign:'center',fontSize:20,fontWeight:'800',color:'#FDF6ED'},content:{padding:16,gap:14},card:{backgroundColor:'#160A03',borderWidth:1,borderColor:'rgba(244,162,97,.18)',borderRadius:16,padding:16},sectionTitle:{fontSize:18,fontWeight:'900',color:'#F4A261',marginBottom:8},subtitle:{color:'rgba(253,246,237,.64)',lineHeight:20,marginBottom:12},row:{flexDirection:'row',gap:12,paddingVertical:8,borderBottomWidth:1,borderBottomColor:'rgba(255,255,255,.05)'},label:{flex:1,color:'rgba(253,246,237,.58)'},value:{flex:1.4,color:'#FDF6ED',fontWeight:'700',textAlign:'right'},fact:{paddingVertical:12,borderBottomWidth:1,borderBottomColor:'rgba(255,255,255,.06)'},factLabel:{color:'rgba(253,246,237,.58)',fontSize:12,fontWeight:'700'},factValue:{color:'#FFF2DE',fontSize:20,fontWeight:'900',marginTop:3},help:{color:'rgba(253,246,237,.68)',lineHeight:19,marginTop:5},chart:{height:350,backgroundColor:'#FFF8EE',borderRadius:12},lifeCard:{backgroundColor:'rgba(244,162,97,.07)',borderRadius:12,padding:13,marginTop:9},lifeTitle:{color:'#FFF2DE',fontSize:16,fontWeight:'900',marginBottom:6},body:{color:'#FDF6ED',lineHeight:21,marginBottom:4},evidence:{color:'rgba(253,246,237,.46)',fontSize:11,marginTop:5},disclaimer:{color:'#FFD18A',lineHeight:18,fontSize:12,marginTop:5},planet:{paddingVertical:10,borderBottomWidth:1,borderBottomColor:'rgba(255,255,255,.05)'},planetName:{color:'#F4A261',fontWeight:'900'},planetPrimary:{color:'#FDF6ED',fontSize:16,fontWeight:'700',marginTop:3},muted:{color:'rgba(253,246,237,.56)',lineHeight:20,marginTop:3},house:{paddingVertical:10,borderBottomWidth:1,borderBottomColor:'rgba(255,255,255,.05)'},houseTitle:{color:'#F4A261',fontWeight:'900'},houseMeaning:{color:'#FDF6ED',marginTop:2},toggle:{minHeight:48,flexDirection:'row',alignItems:'center',justifyContent:'space-between'},toggleText:{color:'#F4A261',fontWeight:'800'},group:{paddingTop:14,marginTop:7,borderTopWidth:1,borderTopColor:'rgba(255,255,255,.06)'},advancedTitle:{color:'#FFF2DE',fontWeight:'900',marginBottom:7},empty:{flex:1,alignItems:'center',justifyContent:'center',padding:28,gap:16},emptyIcon:{fontSize:46},emptyTitle:{color:'#FDF6ED',fontSize:20,fontWeight:'800',lineHeight:28,textAlign:'center'},warning:{backgroundColor:'rgba(212,145,40,.12)',borderColor:'rgba(244,162,97,.35)',borderWidth:1,borderRadius:16,padding:16},warningTitle:{color:'#F4A261',fontWeight:'800',marginBottom:7},warningText:{color:'#FDF6ED',lineHeight:20},precision:{color:'#FFD18A',backgroundColor:'rgba(255,183,77,.09)',padding:12,borderRadius:12,lineHeight:19,marginTop:12},actions:{flexDirection:'row',gap:10,marginTop:14},primary:{flex:1,minHeight:46,borderRadius:12,backgroundColor:'#E8620A',alignItems:'center',justifyContent:'center'},primaryWide:{minHeight:48,minWidth:220,borderRadius:14,backgroundColor:'#E8620A',alignItems:'center',justifyContent:'center',paddingHorizontal:18},primaryText:{color:'#fff',fontWeight:'800'},secondary:{flex:1,minHeight:46,borderRadius:12,borderWidth:1,borderColor:'#F4A261',alignItems:'center',justifyContent:'center'},secondaryWide:{minHeight:46,minWidth:220,borderRadius:14,borderWidth:1,borderColor:'#F4A261',alignItems:'center',justifyContent:'center',paddingHorizontal:18},secondaryText:{color:'#F4A261',fontWeight:'700',textAlign:'center'},editButton:{minHeight:50,borderRadius:14,backgroundColor:'#E8620A',alignItems:'center',justifyContent:'center'},editText:{color:'#fff',fontWeight:'900'}});
