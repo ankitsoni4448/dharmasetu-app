@@ -19,7 +19,7 @@ import NetInfo from '@react-native-community/netinfo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authenticatedFetch, getCurrentPlan, isPaidPlan } from '../../utils/entitlements';
 import { StatusBar } from 'expo-status-bar';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, Animated, Dimensions,
@@ -30,11 +30,22 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { submitAIFeedback } from '../../utils/register_backend';
 import { BACKEND_CONFIG, getBackendUrl } from '../../utils/backend-config';
+import { supabase } from '../../utils/supabase';
 
 const { width: SW } = Dimensions.get('window');
 
 // FIX: Premium cache constants
 const PREMIUM_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const PERSONAL_KUNDLI_AREAS = new Set(['PERSONALITY', 'CAREER', 'EDUCATION', 'FINANCE', 'MARRIAGE', 'PROPERTY', 'HEALTH', 'SPIRITUALITY']);
+const DHARMACHAT_SESSION_PREFIX = 'dharmasetu_dharmachat_session_v1:';
+const boundedChatHistory = history => (Array.isArray(history) ? history : [])
+  .filter(item => ['user', 'assistant'].includes(item?.role) && typeof item?.content === 'string')
+  .slice(-16).map(item => ({ role: item.role, content: item.content.slice(0, 1000) }));
+const validKundliArea = value => {
+  const area = Array.isArray(value) ? value[0] : value;
+  const normalized = String(area || '').trim().toUpperCase();
+  return PERSONAL_KUNDLI_AREAS.has(normalized) ? normalized : null;
+};
 
 // ── RATE LIMITER (client-side UX only) ────────────────────────
 const Sec = {
@@ -68,7 +79,7 @@ const Sec = {
 // FIX: timeout reduced to 25s; AbortController properly cleaned up
 // PHASE 1 FIX: Use unified backend-config instead of hardcoded URL
 // ════════════════════════════════════════════════════════════════
-async function callBackendAI(messages, userProfile, mode, phone) {
+async function callBackendAI(messages, userProfile, mode, phone, conversationContext = null) {
   const controller = new AbortController();
   // FIX: 25s timeout instead of 45s — gives faster failure feedback
   // Backend budget: 12s primary + 10s fallback + 8s continuation, plus DB work.
@@ -86,7 +97,7 @@ async function callBackendAI(messages, userProfile, mode, phone) {
     const res = await authenticatedFetch(getBackendUrl(BACKEND_CONFIG.ENDPOINTS.AI_DHARMA_CHAT), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, mode, panchangLocation }),
+      body: JSON.stringify({ messages, mode, panchangLocation, ...(conversationContext ? { conversationContext } : {}) }),
       signal: controller.signal,
     });
 
@@ -106,7 +117,7 @@ async function callBackendAI(messages, userProfile, mode, phone) {
         'QUOTA_INFRASTRUCTURE_UNAVAILABLE', 'AI_PROVIDER_CONFIGURATION_ERROR',
         'AI_PROVIDER_UNAVAILABLE', 'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT', 'AI_INCOMPLETE_RESPONSE', 'SERVER_ERROR',
         'KUNDLI_CONTEXT_NOT_READY', 'PANCHANG_LOCATION_REQUIRED', 'PANCHANG_LOCATION_INVALID',
-        'PANCHANG_TEMPORARILY_UNAVAILABLE',
+        'PANCHANG_TEMPORARILY_UNAVAILABLE', 'INVALID_CONVERSATION_CONTEXT', 'INVALID_KUNDLI_AREA',
       ]);
       throw new Error(knownCodes.has(err.error) ? err.error : 'SERVER_ERROR');
     }
@@ -314,7 +325,7 @@ function FbModal({ visible, onClose, onSubmit, lang }) {
               style={[fm.submit, !sel && { opacity: 0.5 }]}
               disabled={!sel}
               onPress={() => { onSubmit(sel + (note ? ' — ' + note : '')); setSel(''); setNote(''); }}>
-              <Text style={fm.submitT}>Submit 🙏</Text>
+              <Text style={fm.submitT}>{isH ? 'प्रतिक्रिया भेजें' : 'Submit'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -344,6 +355,7 @@ const fm = StyleSheet.create({
 // MAIN SCREEN
 // ════════════════════════════════════════════════════════════════
 export default function DharmaChatScreen() {
+  const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
 
   const [userLang, setUserLang] = useState('hindi');
@@ -374,6 +386,22 @@ export default function DharmaChatScreen() {
   // FIX: loadingRef — hard lock that prevents parallel send() calls
   // (loading state alone has closure-capture lag)
   const loadingRef = useRef(false);
+  const accountIdRef = useRef('');
+  const conversationContextRef = useRef(null);
+
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      const previousId = accountIdRef.current;
+      const nextId = session?.user?.id || '';
+      if (event === 'SIGNED_OUT' || (previousId && nextId && previousId !== nextId)) {
+        AsyncStorage.removeItem(`${DHARMACHAT_SESSION_PREFIX}${previousId}`).catch(() => {});
+        conversationContextRef.current = null;
+        setHist([]);
+      }
+      accountIdRef.current = nextId;
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
 
   // FIX: premium cache stored in useRef (per-component, not global module variable)
   // Structure: { value: bool, ts: number, phone: string }
@@ -466,6 +494,7 @@ export default function DharmaChatScreen() {
 
   // ── INIT ─────────────────────────────────────────────────────
   useEffect(() => {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) console.log('[DharmaChatBuild] personal-kundli-v1-d2-20260923');
     (async () => {
       try {
         const raw = await AsyncStorage.getItem('dharmasetu_user');
@@ -481,6 +510,7 @@ export default function DharmaChatScreen() {
           rashi = u.rashi || '';
           nak = u.nakshatra || '';
           phone = u.phone || '';
+          accountIdRef.current = u.auth_user_id || u.authUserId || '';
           if (isMountedRef.current) setUserProf(u);
         }
         if (isMountedRef.current) {
@@ -490,6 +520,22 @@ export default function DharmaChatScreen() {
 
         // Check if coming from home with preset question
         const presetQ = await AsyncStorage.getItem('dharmasetu_preset_question');
+        const routeArea = validKundliArea(params.kundli_area);
+        const sessionKey = accountIdRef.current ? `${DHARMACHAT_SESSION_PREFIX}${accountIdRef.current}` : null;
+        let restoredHistory = [];
+        if (sessionKey) {
+          try {
+            const saved = JSON.parse(await AsyncStorage.getItem(sessionKey) || 'null');
+            if (saved?.ownerId === accountIdRef.current) {
+              restoredHistory = boundedChatHistory(saved.history);
+              const savedArea = validKundliArea(saved?.conversationContext?.area);
+              if (saved?.conversationContext?.type === 'PERSONAL_KUNDLI' && savedArea) {
+                conversationContextRef.current = { type: 'PERSONAL_KUNDLI', area: savedArea };
+              }
+            }
+          } catch {}
+        }
+        if (routeArea) conversationContextRef.current = { type: 'PERSONAL_KUNDLI', area: routeArea };
         const mode = await AsyncStorage.getItem('dharmasetu_mode');
         if (mode === 'factcheck' && isMountedRef.current) {
           setChatMode('factcheck');
@@ -504,6 +550,11 @@ export default function DharmaChatScreen() {
         const titleMap = { hindi: '🙏 जय श्री राम', english: '🙏 Jai Shri Ram' };
 
         if (isMountedRef.current) {
+          const restoredMessages = restoredHistory.map((item, index) => item.role === 'user'
+            ? { id: `restored_u_${index}`, type: 'user', text: item.content, time: '' }
+            : { id: `restored_a_${index}`, type: 'ai', title: '', body: item.content, src: '', ver: false,
+                translations: {}, activeLang: null, feedback: null, saved: false, streaming: false, time: '' });
+          setHist(restoredHistory);
           setMsgs([{
             id: 'w', type: 'ai',
             title: titleMap[lang] || titleMap.english,
@@ -511,7 +562,7 @@ export default function DharmaChatScreen() {
             translations: {}, activeLang: null,
             feedback: null, saved: false, streaming: false,
             isWelcome: true, time: tNow(),
-          }]);
+          }, ...restoredMessages]);
           setReady(true);
         }
 
@@ -684,7 +735,7 @@ export default function DharmaChatScreen() {
 
       const profile = { name, deity, rashi, nakshatra: nak, language: lang };
       const requestStartedAt = Date.now();
-      const response = await callBackendAI(messages, profile, isFC ? 'factcheck' : 'dharma', phone);
+      const response = await callBackendAI(messages, profile, isFC ? 'factcheck' : 'dharma', phone, conversationContextRef.current);
       if (response.nonFactCheckable) {
         if (isMountedRef.current) setMsgs(p => p.filter(m => m.id !== aid));
         Alert.alert(
@@ -714,10 +765,17 @@ export default function DharmaChatScreen() {
               incomplete: !!response.incomplete }
           : m
         ));
-        setHist(p => [...p,
-          { role: 'user', content: clean },
-          { role: 'assistant', content: rawA },
-        ].slice(-16));
+        setHist(p => {
+          const next = boundedChatHistory([...p, { role: 'user', content: clean }, { role: 'assistant', content: rawA }]);
+          const responseIntent = response.metadata?.intent || response.intent;
+          if (conversationContextRef.current && responseIntent && responseIntent !== 'PERSONAL_JYOTISH') {
+            conversationContextRef.current = null;
+          }
+          if (accountIdRef.current) AsyncStorage.setItem(`${DHARMACHAT_SESSION_PREFIX}${accountIdRef.current}`, JSON.stringify({
+            ownerId: accountIdRef.current, history: next, conversationContext: conversationContextRef.current,
+          })).catch(() => {});
+          return next;
+        });
         streamText(parsed.body, aid);
       }
       return true;
@@ -727,7 +785,7 @@ export default function DharmaChatScreen() {
         'FEATURE_DISABLED', 'RATE_LIMIT', 'FORBIDDEN',
         'QUOTA_INFRASTRUCTURE_UNAVAILABLE', 'AI_PROVIDER_CONFIGURATION_ERROR',
         'AI_PROVIDER_UNAVAILABLE', 'AI_PROVIDER_RATE_LIMIT', 'AI_TIMEOUT', 'AI_INCOMPLETE_RESPONSE',
-        'NETWORK_ERROR', 'SERVER_ERROR', 'KUNDLI_CONTEXT_NOT_READY',
+        'NETWORK_ERROR', 'SERVER_ERROR', 'KUNDLI_CONTEXT_NOT_READY', 'INVALID_CONVERSATION_CONTEXT', 'INVALID_KUNDLI_AREA',
         'PANCHANG_LOCATION_REQUIRED', 'PANCHANG_LOCATION_INVALID', 'PANCHANG_TEMPORARILY_UNAVAILABLE',
       ]);
       if (!controlledCodes.has(err.message)) {
@@ -965,15 +1023,18 @@ if (!phone) {
         {/* Language bar */}
         <View style={s.lBar}>
           <Text style={s.lLbl}>{isH ? 'भाषा:' : 'LANG:'}</Text>
-          {[{ id: 'hindi', l: 'हिंदी' }, { id: 'english', l: 'English' }].map(({ id, l }) => (
-            <TouchableOpacity
-              key={id}
-              style={[s.lChip, userLang === id && s.lChipOn]}
-              onPress={() => setUserLang(id)}
-              activeOpacity={0.8}>
-              <Text style={[s.lTxt, userLang === id && s.lTxtOn]}>{l}</Text>
-            </TouchableOpacity>
-          ))}
+          <TouchableOpacity
+            style={[s.lChip, s.lChipOn]}
+            accessibilityRole="button"
+            accessibilityLabel={isH ? 'Switch to English' : 'हिंदी में बदलें'}
+            onPress={async () => {
+              const next = isH ? 'english' : 'hindi';
+              setUserLang(next);
+              await AsyncStorage.setItem('user_language', next);
+            }}
+            activeOpacity={0.8}>
+            <Text style={[s.lTxt, s.lTxtOn]}>{isH ? 'EN' : 'हिं'}</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={s.dSep}>
