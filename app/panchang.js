@@ -113,6 +113,14 @@ function query(location) {
   return `lat=${encodeURIComponent(location.latitude)}&lng=${encodeURIComponent(location.longitude)}&timezone=${encodeURIComponent(location.timezone)}&label=${encodeURIComponent(location.label || '')}`;
 }
 
+function panchangTraceId() {
+  return `panchang-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function panchangTrace(event, traceId, date, extra = {}) {
+  console.log('[PanchangTrace]', { traceId, event, date, ...extra });
+}
+
 function Section({ title, children }) { return <View style={s.card}><Text style={s.sectionTitle}>{title}</Text>{children}</View>; }
 function Row({ label, value, note }) { return <View style={s.row}><View style={{ flex: 1 }}><Text style={s.label}>{label}</Text>{note ? <Text style={s.note}>{note}</Text> : null}</View><Text style={s.value}>{value || '—'}</Text></View>; }
 
@@ -135,21 +143,36 @@ export default function PanchangScreen() {
   const load = useCallback(async () => {
     if (!location) return;
     const activeRequest = ++requestId.current;
+    const traceId = tab === 'today' ? panchangTraceId() : null;
     const cacheKey = dayCacheKey(date, location);
     let cached = tab === 'today' ? getCachedDay(dayCache.current, cacheKey) : null;
     if (!cached && tab === 'today') {
       const persisted = await getCachedPanchang(AsyncStorage, { date, location }).catch(() => null);
       if (persisted) { cached = { date, locationKey: cacheKey, data: persisted }; setCachedDay(dayCache.current, cacheKey, cached); }
     }
-    if (cached) { setData(cached.data); setError(null); setLoading(false); setDayStates(current => ({ ...current, [date]: 'LOADED' })); return; }
+    if (cached) {
+      if (tab === 'today') panchangTrace('DEVICE_CACHE_HIT', traceId, date);
+      setData(cached.data); setError(null); setLoading(false); setDayStates(current => ({ ...current, [date]: 'LOADED' })); return;
+    }
+    if (tab === 'today') panchangTrace('DEVICE_CACHE_MISS', traceId, date);
     setLoading(true); setError(null); setData(null);
     if (tab === 'today') setDayStates(current => ({ ...current, [date]: 'LOADING' }));
     const path = tab === 'today' ? `${BACKEND_CONFIG.ENDPOINTS.PANCHANG_DAY}?date=${date}&${query(location)}`
       : tab === 'month' ? `${BACKEND_CONFIG.ENDPOINTS.PANCHANG_MONTH}?year=${monthState.year}&month=${monthState.month}&${query(location)}`
       : `${BACKEND_CONFIG.ENDPOINTS.PANCHANG_YEAR}?year=${year}&${query(location)}`;
-    try { const response = await backendFetch(path, { timeout: tab === 'month' ? 90000 : 20000 }); const json = await response.json();
+    try {
+      if (tab === 'today') panchangTrace('PANCHANG_REQUEST', traceId, date);
+      const response = await backendFetch(path, { timeout: tab === 'month' ? 90000 : 20000,
+        headers: tab === 'today' ? { 'X-DharmaSetu-Trace-Id': traceId } : undefined });
+      const json = await response.json();
+      if (tab === 'today') panchangTrace('PANCHANG_RESPONSE', traceId, date,
+        { status: response.status, outcome: json?.success ? 'SUCCESS' : json?.error || 'ERROR' });
       if (!response.ok || !json.success) throw new Error(json.error || 'PANCHANG_TEMPORARILY_UNAVAILABLE');
-      if (tab === 'today' && !isValidDailyData(json.data)) throw new Error('INVALID_PANCHANG_RESPONSE');
+      if (tab === 'today' && !isValidDailyData(json.data)) {
+        panchangTrace('PANCHANG_VALIDATION_REJECTED', traceId, date, { code: 'INVALID_PANCHANG_RESPONSE' });
+        throw new Error('INVALID_PANCHANG_RESPONSE');
+      }
+      if (tab === 'today') panchangTrace('PANCHANG_VALIDATION_ACCEPTED', traceId, date);
       if (activeRequest !== requestId.current) return;
       setData(json.data);
       if (tab === 'today') {
@@ -161,6 +184,8 @@ export default function PanchangScreen() {
       }
     } catch (errorValue) {
       if (activeRequest !== requestId.current) return;
+      if (tab === 'today') panchangTrace('PANCHANG_ERROR', traceId, date,
+        { code: errorValue?.message || 'PANCHANG_REQUEST_FAILED' });
       setError(errorValue.message); setData(null);
       if (tab === 'today') setDayStates(current => ({ ...current, [date]: 'ERROR' }));
     } finally { if (activeRequest === requestId.current) setLoading(false); }
