@@ -34,10 +34,10 @@ test('legacy claims are review-only and do not become practice defaults', () => 
   assert.ok(MANTRAS_V2.every(item=>Object.values(item.practice).every(value=>value===null)));
   assert.equal(MANTRAS_V2.filter(item=>item.verification_status==='VERIFIED').length,0);
 });
-test('library uses FlatList and exposes combined filters without entry slicing', () => {
+test('production library uses backend catalog and does not import static mantra data', () => {
   const library=read('app/mantra_library.js');
-  assert.match(library,/testID="mantra-library-list"/); assert.match(library,/searchMantras\(\{ query, deity, purpose, contentType \}\)/);
-  assert.doesNotMatch(library,/MANTRAS\.slice/);
+  assert.match(library,/testID="mantra-library-list"/); assert.match(library,/fetchMantraCatalog\(backendFetch\)/);
+  assert.doesNotMatch(library,/data\/mantra(?:V2|Index)/); assert.doesNotMatch(library,/MANTRAS\.slice/);
 });
 test('search, deity, purpose and content-type filters operate on V2 records', () => {
   assert.ok(searchMantras({query:'Gayatri'}).some(item=>item.id==='gayatri'));
@@ -48,7 +48,9 @@ test('search, deity, purpose and content-type filters operate on V2 records', ()
 });
 test('detail, japa, share, safe-area and count semantics are wired', () => {
   const detail=read('app/mantra_detail.js'), japa=read('app/mantra_japa.js');
-  assert.match(detail,/Share\.share/); assert.match(detail,/Synthetic aid/); assert.match(detail,/paddingBottom:insets\.bottom/);
+  assert.match(detail,/Share\.share/); assert.match(detail,/Synthetic pronunciation aid/); assert.match(detail,/fetchMantraById\(backendFetch/); assert.match(detail,/pathname:'\/mantra_japa'/); assert.match(detail,/paddingBottom:insets\.bottom/);
+  assert.match(japa,/fetchMantraById\(backendFetch/);
+  assert.match(japa,/createTapGuard\(350\)/); assert.match(japa,/Reset session count\?/);
   assert.match(japa,/\[11,21,27,54,108\]/); assert.match(japa,/complete 108-repetition/); assert.doesNotMatch(japa,/slice\(0,15\)/);
 });
 test('stable-ID storage converts old snapshots and audio handles absent files', () => {
