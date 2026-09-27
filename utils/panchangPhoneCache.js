@@ -11,8 +11,13 @@ function localDateInTimezone(now, timezone) {
 function cacheKey(date, location, calculationVersion = RESPONSE_VERSION) {
   return [date, roundedCoordinate(location.latitude), roundedCoordinate(location.longitude), location.timezone || '', calculationVersion].join('|');
 }
+function isValidDailyPanchang(value) {
+  return Boolean(value?.modernDate?.formattedLocalDate && value?.traditionalDate && value?.panchang?.tithi?.name && value?.panchang?.nakshatra?.name &&
+    value?.panchang?.yoga?.name && value?.panchang?.karana?.name && value?.sunMoon && value?.muhurta && value?.avoidPeriods &&
+    Array.isArray(value?.events) && value?.metadata?.provider && value?.metadata?.ayanamsa?.name);
+}
 function isUsableEntry(entry, { date, location, now = Date.now(), calculationVersion } = {}) {
-  if (!entry?.data || entry.key !== cacheKey(date, location, calculationVersion)) return false;
+  if (!entry?.data || entry.key !== cacheKey(date, location, calculationVersion) || !isValidDailyPanchang(entry.data)) return false;
   const localToday = localDateInTimezone(now, location.timezone);
   if (entry.todaySnapshot && entry.date !== localToday) return false;
   return true;
@@ -24,7 +29,9 @@ async function readCache(storage) {
 async function getCachedPanchang(storage, context) {
   const cache = await readCache(storage); const key = cacheKey(context.date, context.location, context.calculationVersion);
   const entry = cache.entries.find(row => row.key === key);
-  return isUsableEntry(entry, context) ? entry.data : null;
+  if (isUsableEntry(entry, context)) return entry.data;
+  if (entry) await storage.setItem(STORAGE_KEY, JSON.stringify({ entries: cache.entries.filter(row => row !== entry) }));
+  return null;
 }
 async function setCachedPanchang(storage, context, data) {
   const cache = await readCache(storage); const key = cacheKey(context.date, context.location, context.calculationVersion);
@@ -35,4 +42,4 @@ async function setCachedPanchang(storage, context, data) {
   return data;
 }
 
-module.exports = { STORAGE_KEY, MAX_ENTRIES, RESPONSE_VERSION, localDateInTimezone, cacheKey, isUsableEntry, getCachedPanchang, setCachedPanchang };
+module.exports = { STORAGE_KEY, MAX_ENTRIES, RESPONSE_VERSION, localDateInTimezone, cacheKey, isValidDailyPanchang, isUsableEntry, getCachedPanchang, setCachedPanchang };
