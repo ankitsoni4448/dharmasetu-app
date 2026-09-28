@@ -7,19 +7,28 @@ function populatedEntries(value) {
   return Object.entries(value).filter(([, item]) => item != null && item !== '' && (!Array.isArray(item) || item.length));
 }
 
-function presentationValue(value) {
-  if (typeof value === 'string') return value.trim() || null;
+function presentationValue(value, corruptionFallback = 'Content under review') {
+  if (typeof value === 'string') return hasReplacementCorruption(value) ? corruptionFallback : value.trim() || null;
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : null;
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
   if (Array.isArray(value)) {
-    const values = value.map(presentationValue).filter(Boolean);
+    const values = value.map(item => presentationValue(item, corruptionFallback)).filter(Boolean);
     return values.length ? values.join(', ') : null;
   }
   return null;
 }
 
+function hasReplacementCorruption(value) {
+  return typeof value === 'string' && (value.includes('\uFFFD') || value.includes('ï¿½'));
+}
+
+function explanatoryText(value, fallback = 'Content under review') {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  return hasReplacementCorruption(value) ? fallback : value.trim();
+}
+
 function practiceLevelLabel(level) {
-  return ({ GENERAL_DEVOTIONAL:'General devotional', SOURCE_SPECIFIC:'Source-specific', TRADITION_SPECIFIC:'Tradition-specific',
+  return ({ GENERAL_DEVOTIONAL:'General devotional practice', SOURCE_SPECIFIC:'Source-specific practice', TRADITION_SPECIFIC:'Tradition-specific practice',
     INITIATION_GUIDANCE:'Initiation guidance', RESTRICTED:'Restricted practice' })[level] || 'Practice level unavailable';
 }
 
@@ -50,5 +59,5 @@ function createSerializedWriter(write) {
   return value => { pending = pending.catch(() => {}).then(() => write(value)); return pending; };
 }
 
-module.exports = { populatedEntries, presentationValue, practiceLevelLabel, advancedPracticeState, createTapGuard,
+module.exports = { populatedEntries, presentationValue, hasReplacementCorruption, explanatoryText, practiceLevelLabel, advancedPracticeState, createTapGuard,
   createGuidedJapaState, createGeneralPreparation, createSerializedWriter };

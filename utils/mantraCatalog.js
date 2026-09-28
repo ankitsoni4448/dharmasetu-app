@@ -8,6 +8,7 @@ let fullRequestSequence = 0; let installedFullRequest = 0; let catalogGeneration
 
 function array(value) { return Array.isArray(value) ? value.filter(Boolean) : []; }
 function text(value) { return typeof value === 'string' ? value.trim() : ''; }
+function hasReplacementCorruption(value) { return typeof value === 'string' && (value.includes('\uFFFD') || value.includes('ï¿½')); }
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function status(value) { return VERIFICATION_STATUSES.has(value) ? value : 'UNVERIFIED'; }
 function sources(value) { return array(value).filter(source => source && typeof source === 'object' && !Array.isArray(source)); }
@@ -29,6 +30,7 @@ function normalizeMantraRecord(raw) {
     classifications: array(raw.classifications),
     content_type: text(raw.mantra_content_type || raw.content_type) || 'MANTRA', deity_ids: deityIds,
     purpose_ids: purposeIds, category_ids: categoryIds, sanskrit_text: sanskritText,
+    sanskrit_text_corrupted: hasReplacementCorruption(sanskritText),
     transliteration_iast: text(raw.transliteration_iast) || null,
     transliteration_simple: text(raw.transliteration_simple || raw.transliteration) || null,
     meanings: { hi: text(meanings.hi || raw.meaning_hi) || null, en: text(meanings.en || raw.meaning_en) || null },
@@ -67,6 +69,8 @@ function normalizeMantraList(rows, { cache = true } = {}) {
     if (!value || seen.has(value.id)) continue;
     seen.add(value.id); values.push(value); if (cache) catalogById.set(value.id, value);
   }
+  const corruptedIds = values.filter(value => value.sanskrit_text_corrupted).map(value => value.id);
+  if (corruptedIds.length) console.warn('[MantraCatalog] Sacred text corruption requires review:', corruptedIds.join(', '));
   return values;
 }
 
@@ -130,7 +134,7 @@ async function fetchMantraById(backendFetch, id) {
 
 function verificationLabel(status) {
   return status === 'VERIFIED' ? 'Verified' : status === 'RESTRICTED' ? 'Restricted'
-    : status === 'REVIEW_REQUIRED' ? 'Review required' : 'Unverified';
+    : status === 'REVIEW_REQUIRED' ? 'Content review pending' : 'Verification pending';
 }
 
 module.exports = { normalizeMantraRecord, normalizeMantraList, filterMantras, filtersFor, fetchMantraCatalog,

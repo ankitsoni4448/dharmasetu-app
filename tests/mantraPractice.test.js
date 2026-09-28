@@ -71,8 +71,16 @@ test('presentation helper renders primitives and omits structured objects safely
 test('every supported practice level has a distinct truthful label', () => {
   const levels = ['GENERAL_DEVOTIONAL','SOURCE_SPECIFIC','TRADITION_SPECIFIC','INITIATION_GUIDANCE','RESTRICTED'];
   const labels = levels.map(practice.practiceLevelLabel);
-  assert.deepEqual(labels, ['General devotional','Source-specific','Tradition-specific','Initiation guidance','Restricted practice']);
+  assert.deepEqual(labels, ['General devotional practice','Source-specific practice','Tradition-specific practice','Initiation guidance','Restricted practice']);
   assert.equal(new Set(labels).size, levels.length);
+});
+
+test('replacement-character corruption is withheld from explanatory presentation', () => {
+  assert.equal(practice.hasReplacementCorruption(`broken\uFFFDtext`), true);
+  assert.equal(practice.hasReplacementCorruption('ï¿½ï¿½ï¿½'), true);
+  assert.equal(practice.explanatoryText(`broken\uFFFDtext`), 'Content under review');
+  assert.equal(practice.presentationValue(`broken\uFFFDtext`, 'सामग्री की समीक्षा जारी है।'), 'सामग्री की समीक्षा जारी है।');
+  assert.equal(practice.explanatoryText('reviewed text'), 'reviewed text');
 });
 
 test('serialized persistence cannot complete a newer count before an older write', async () => {

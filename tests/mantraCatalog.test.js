@@ -61,10 +61,24 @@ test('malformed and inactive records are discarded while optional fields remain 
 
 test('verification labels use stored canonical status only', () => {
   assert.equal(catalog.verificationLabel('VERIFIED'), 'Verified');
-  assert.equal(catalog.verificationLabel('REVIEW_REQUIRED'), 'Review required');
+  assert.equal(catalog.verificationLabel('REVIEW_REQUIRED'), 'Content review pending');
   assert.equal(catalog.verificationLabel('RESTRICTED'), 'Restricted');
-  assert.equal(catalog.verificationLabel('AI_CONFIDENT'), 'Unverified');
+  assert.equal(catalog.verificationLabel('AI_CONFIDENT'), 'Verification pending');
   assert.equal(catalog.normalizeMantraRecord({ ...valid, verification_status: 'AI_CONFIDENT' }).verification_status, 'UNVERIFIED');
+});
+
+test('sacred-text corruption is flagged and never auto-corrected', () => {
+  const corrupted = `unchanged\uFFFDsacred`;
+  const record = catalog.normalizeMantraRecord({ ...valid, id: 'sacred-corrupt', sanskrit_text: corrupted });
+  assert.equal(record.sanskrit_text, corrupted);
+  assert.equal(record.sanskrit_text_corrupted, true);
+});
+
+test('normalizing a catalog reports IDs whose sacred text appears corrupted', () => {
+  const messages = []; const original = console.warn; console.warn = (...parts) => messages.push(parts.join(' '));
+  try { catalog.normalizeMantraList([{ ...valid, id: 'reported-corrupt', sanskrit_text: `unchanged\uFFFDtext` }], { cache:false }); }
+  finally { console.warn = original; }
+  assert.ok(messages.some(message => message.includes('reported-corrupt')));
 });
 
 test('detail lookup uses the backend id contract and returns null for an empty result', async () => {
