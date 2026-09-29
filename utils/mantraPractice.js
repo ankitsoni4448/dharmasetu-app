@@ -18,13 +18,17 @@ function presentationValue(value, corruptionFallback = 'Content under review') {
   return null;
 }
 
-function hasReplacementCorruption(value) {
-  return typeof value === 'string' && (value.includes('\uFFFD') || value.includes('ï¿½'));
-}
+const { hasReplacementCorruption } = require('./mantraQuality');
 
 function explanatoryText(value, fallback = 'Content under review') {
   if (typeof value !== 'string' || !value.trim()) return null;
   return hasReplacementCorruption(value) ? fallback : value.trim();
+}
+
+function shareMessage(mantra) {
+  return [explanatoryText(mantra?.canonical_name),
+    !mantra?.sanskrit_text_corrupted && typeof mantra?.sanskrit_text==='string' && !hasReplacementCorruption(mantra.sanskrit_text) ? mantra.sanskrit_text : null,
+    explanatoryText(mantra?.transliteration_simple), 'Shared from DharmaSetu'].filter(Boolean).join('\n\n');
 }
 
 function practiceLevelLabel(level) {
@@ -59,5 +63,5 @@ function createSerializedWriter(write) {
   return value => { pending = pending.catch(() => {}).then(() => write(value)); return pending; };
 }
 
-module.exports = { populatedEntries, presentationValue, hasReplacementCorruption, explanatoryText, practiceLevelLabel, advancedPracticeState, createTapGuard,
+module.exports = { populatedEntries, presentationValue, hasReplacementCorruption, explanatoryText, shareMessage, practiceLevelLabel, advancedPracticeState, createTapGuard,
   createGuidedJapaState, createGeneralPreparation, createSerializedWriter };

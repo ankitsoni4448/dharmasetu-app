@@ -50,8 +50,8 @@ test('detail, japa, share, safe-area and count semantics are wired', () => {
   const detail=read('app/mantra_detail.js'), japa=read('app/mantra_japa.js');
   assert.match(detail,/Share\.share/); assert.match(detail,/Synthetic pronunciation aid/); assert.match(detail,/fetchMantraById\(backendFetch/); assert.match(detail,/pathname:'\/mantra_japa'/); assert.match(detail,/paddingBottom:insets\.bottom/);
   assert.match(japa,/fetchMantraById\(backendFetch/);
-  assert.match(japa,/createTapGuard\(350\)/); assert.match(japa,/Reset session count\?/);
-  assert.match(japa,/\[11,21,27,54,108\]/); assert.match(japa,/complete 108-repetition/); assert.doesNotMatch(japa,/slice\(0,15\)/);
+  assert.match(japa,/createTapGuard\(350\)/); assert.match(japa,/Start a new session\?/);
+  assert.deepEqual(require('../utils/mantraExperience').TARGETS,[11,21,51,108]); assert.match(japa,/complete 108-bead malas/); assert.doesNotMatch(japa,/slice\(0,15\)/);
 });
 test('stable-ID storage converts old snapshots and audio handles absent files', () => {
   const storage=read('utils/mantraLibraryStorage.js'), manifest=read('utils/mantraAudioManifest.js'), audio=read('utils/mantraAudio.js');

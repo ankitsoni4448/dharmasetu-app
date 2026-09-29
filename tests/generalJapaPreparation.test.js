@@ -1,4 +1,5 @@
 'use strict';
+/* global __dirname */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -23,13 +24,13 @@ test('general guidance remains separate from canonical mantra practice', () => {
   assert.equal(Object.hasOwn(record, 'general_preparation'), false);
 });
 
-test('Detail and Japa use the shared preparation component and preserve practice separation', () => {
+test('Detail owns full preparation and Japa offers only a compact link', () => {
   const detail = read('app/mantra_detail.js'); const japa = read('app/mantra_japa.js');
-  assert.match(detail, /<GeneralJapaPreparation \/>/); assert.match(japa, /<GeneralJapaPreparation summary=\{!showPreparation\}/);
+  assert.match(detail, /<GeneralJapaPreparation \/>/); assert.doesNotMatch(japa, /GeneralJapaPreparation/);
   assert.match(detail, /Reviewed mantra-specific practice guidance is not currently available/);
-  assert.match(japa, /DIGITAL MALA · COUNTING TOOL/);
-  assert.match(japa, /Counting target — not a mantra-specific prescription/);
-  assert.match(japa, /Reviewed mantra-specific count:/);
+  assert.match(japa, /<DigitalMala/);
+  assert.match(japa, /counting target is not a mantra-specific prescription/);
+  assert.match(japa, /View preparation/);
 });
 
 test('synthetic audio and corrupt sacred-text presentation remain explicit', () => {

@@ -1,0 +1,13 @@
+{
+  "scope": [
+    "app/mantra_library.js",
+    "app/mantra_detail.js",
+    "app/mantra_japa.js",
+    "components/mantra/DigitalMala.js",
+    "components/mantra/PracticeReveal.js",
+    "components/mantra/GeneralJapaPreparation.js",
+    "utils/generalJapaPreparation.js"
+  ],
+  "method": "Babel parsed JSXText and string literals; no rendering/font claim",
+  "findings": []
+}

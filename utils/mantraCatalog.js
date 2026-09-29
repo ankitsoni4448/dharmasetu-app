@@ -7,8 +7,10 @@ const PAGE_SIZE = 100; const MAX_CATALOG_PAGES = 100;
 let fullRequestSequence = 0; let installedFullRequest = 0; let catalogGeneration = 0;
 
 function array(value) { return Array.isArray(value) ? value.filter(Boolean) : []; }
+function strings(value) { return array(value).filter(item => typeof item === 'string' && item.trim()); }
 function text(value) { return typeof value === 'string' ? value.trim() : ''; }
-function hasReplacementCorruption(value) { return typeof value === 'string' && (value.includes('\uFFFD') || value.includes('ï¿½')); }
+const { hasReplacementCorruption } = require('./mantraQuality');
+const normalizeSearch = value => text(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('en-IN');
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
 function status(value) { return VERIFICATION_STATUSES.has(value) ? value : 'UNVERIFIED'; }
 function sources(value) { return array(value).filter(source => source && typeof source === 'object' && !Array.isArray(source)); }
@@ -18,14 +20,16 @@ function normalizeMantraRecord(raw) {
   const sanskritText = text(raw.sanskrit_text);
   if (!id || !canonicalName || !sanskritText || raw.is_active === false) return null;
   const verificationStatus = status(raw.verification_status);
-  const deityIds = array(raw.deity_ids).length ? array(raw.deity_ids) : [text(raw.deity)].filter(Boolean);
-  const purposeIds = array(raw.purpose_ids).length ? array(raw.purpose_ids) : [text(raw.purpose)].filter(Boolean);
-  const categoryIds = array(raw.category_ids);
+  const deityIds = strings(raw.deity_ids).length ? strings(raw.deity_ids) : [text(raw.deity)].filter(Boolean);
+  const purposeIds = strings(raw.purpose_ids).length ? strings(raw.purpose_ids) : [text(raw.purpose)].filter(Boolean);
+  const categoryIds = strings(raw.category_ids);
   const meanings = object(raw.meanings); const practice = object(raw.practice);
   const preparation = object(raw.preparation); const audioMetadata = object(raw.audio_metadata);
   const verification = object(raw.verification_dimensions);
   const value = {
-    id, canonical_name: canonicalName, alternate_names: array(raw.alternate_names), names: object(raw.names),
+    id, canonical_name: hasReplacementCorruption(canonicalName) ? 'Name under review' : canonicalName, alternate_names: strings(raw.alternate_names), names: object(raw.names),
+    taxonomy_nodes: array(raw.taxonomy_nodes), reviewed_purpose_mappings: array(raw.reviewed_purpose_mappings),
+    audio_artifacts: array(raw.audio_artifacts), artwork: object(raw.artwork), completion_recitation: object(raw.completion_recitation),
     language: text(raw.language) || null, primary_classification: text(raw.primary_classification) || null,
     classifications: array(raw.classifications),
     content_type: text(raw.mantra_content_type || raw.content_type) || 'MANTRA', deity_ids: deityIds,
@@ -57,8 +61,8 @@ function normalizeMantraRecord(raw) {
       audio: status(raw.audio_verification || verification.audio) },
     tags: array(raw.tags_v2 || raw.tags), is_active: true,
   };
-  value.search_text = [canonicalName, sanskritText, value.transliteration_simple, value.meanings.hi, value.meanings.en,
-    ...deityIds, ...purposeIds, ...categoryIds, ...value.tags].filter(Boolean).join(' ').toLocaleLowerCase('en-IN');
+  value.search_text = normalizeSearch([canonicalName, sanskritText, value.transliteration_simple, value.transliteration_iast, ...value.alternate_names, value.meanings.hi, value.meanings.en,
+    ...deityIds, ...purposeIds, ...categoryIds, ...value.tags].filter(Boolean).join(' '));
   return value;
 }
 
@@ -75,7 +79,7 @@ function normalizeMantraList(rows, { cache = true } = {}) {
 }
 
 function filterMantras(rows, { query = '', deity = 'All', purpose = 'All', contentType = 'All' } = {}) {
-  const needle = text(query).toLocaleLowerCase('en-IN');
+  const needle = normalizeSearch(query);
   return array(rows).filter(item => deity === 'All' || item.deity_ids.includes(deity))
     .filter(item => purpose === 'All' || item.purpose_ids.includes(purpose))
     .filter(item => contentType === 'All' || item.content_type === contentType)

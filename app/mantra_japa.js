@@ -1,43 +1,80 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, Vibration, View } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { backendFetch } from '../utils/backend-config';
+import React,{useCallback,useEffect,useMemo,useRef,useState} from 'react';
+import {ActivityIndicator,Alert,AppState,ScrollView,StyleSheet,Text,TextInput,TouchableOpacity,Vibration,View} from 'react-native';
+import {router,useLocalSearchParams,useFocusEffect} from 'expo-router';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {backendFetch} from '../utils/backend-config';
 import mantraCatalog from '../utils/mantraCatalog';
 import mantraPractice from '../utils/mantraPractice';
-import GeneralJapaPreparation from '../components/mantra/GeneralJapaPreparation';
-import { safeGet, safeSet, KEYS } from '../utils/storage';
-import { saveJapaSession, getMantraStreak } from '../utils/mantraAudio';
-const { fetchMantraById } = mantraCatalog;
-const { populatedEntries, presentationValue, explanatoryText, practiceLevelLabel, advancedPracticeState, createTapGuard, createSerializedWriter } = mantraPractice;
+import experience from '../utils/mantraExperience';
+import guided from '../utils/mantraGuided';
+import {createPlaybackAdapter} from '../utils/mantraPlayback';
+import {loadPractice,persistPractice} from '../utils/mantraProgressStorage';
+import {useMantraPronunciation} from '../utils/useMantraPronunciation';
+import {addRecentId} from '../utils/mantraLibraryStorage';
+import DigitalMala from '../components/mantra/DigitalMala';
+import PracticeReveal from '../components/mantra/PracticeReveal';
 
-const TARGETS=[11,21,27,54,108];
-const todayKey=()=>`japa_${new Date().toDateString()}`;
+const {TARGETS,advance,newSession,finishSession,rollover,validTarget,completionMessage}=experience;
+const Button=({children,onPress,disabled=false})=><TouchableOpacity accessibilityRole="button" disabled={disabled} accessibilityState={{disabled}} onPress={onPress} style={[s.button,disabled&&s.disabled]}><Text style={s.buttonText}>{children}</Text></TouchableOpacity>;
 export default function MantraJapaScreen(){
-  const {id}=useLocalSearchParams(); const insets=useSafeAreaInsets(); const [mantra,setMantra]=useState(null); const [loading,setLoading]=useState(true); const [loadError,setLoadError]=useState(false);
-  const [showPreparation,setShowPreparation]=useState(false);
-  const [count,setCount]=useState(0); const [target,setTarget]=useState(108); const [today,setToday]=useState(0); const [streak,setStreak]=useState(0); const [custom,setCustom]=useState(''); const scale=useRef(new Animated.Value(1)).current; const acceptTap=useRef(createTapGuard(350)).current; const persistCount=useRef(createSerializedWriter(value=>safeSet(KEYS.JAPA_COUNT,value))).current;
-  useEffect(()=>{Promise.all([safeGet(KEYS.JAPA_COUNT,0),safeGet(KEYS.JAPA_TARGET,108),safeGet(todayKey(),0),getMantraStreak()]).then(([c,t,d,s])=>{setCount(Number(c)||0);setTarget(Number(t)||108);setToday(Number(d)||0);setStreak(Number(s)||0);});},[]);
-  useEffect(()=>{let active=true;setLoading(true);setLoadError(false);fetchMantraById(backendFetch,String(id||''))
-    .then(value=>{if(active)setMantra(value);}).catch(()=>{if(active){setMantra(null);setLoadError(true);}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[id]);
-  const choose=value=>{setTarget(value);setCount(0);safeSet(KEYS.JAPA_TARGET,value);persistCount(0);};
-  const tap=useCallback(()=>{if(!mantra||!acceptTap())return;Vibration.vibrate(8);Animated.sequence([Animated.timing(scale,{toValue:.9,duration:50,useNativeDriver:true}),Animated.spring(scale,{toValue:1,useNativeDriver:true})]).start();setCount(current=>{const next=current+1;persistCount(next);if(next===target){Vibration.vibrate([0,100,90,100]);saveJapaSession({mantraId:mantra.id,mantraName:mantra.canonical_name,count:target,durationMs:0});Alert.alert('Cycle complete',`${target} repetitions completed.`);}return next;});setToday(current=>{const next=current+1;safeSet(todayKey(),next);return next;});},[mantra,target,scale,acceptTap,persistCount]);
-  if(loading)return <View style={[s.root,s.center]}><ActivityIndicator color="#F4A261"/><Text style={s.text}>Loading Mantra…</Text></View>;
-  if(loadError)return <View style={[s.root,s.center]}><Text style={s.text}>Japa is temporarily unavailable because the Mantra record could not be loaded.</Text></View>;
-  if(!mantra)return <View style={[s.root,s.center]}><Text style={s.text}>Mantra entry not found.</Text></View>;
-  const practiceRows=populatedEntries(mantra.practice).filter(([key])=>key!=='recommended_counts'); const practiceDisplayable=mantra.provenance.practice.length>0&&mantra.verification.practice==='VERIFIED'&&!advancedPracticeState(mantra).guarded;
-  const reviewedCounts=practiceDisplayable&&Array.isArray(mantra.practice.recommended_counts)?presentationValue(mantra.practice.recommended_counts):null;
-  const cycle=count%target; const malas=Math.floor(count/108);
-  return <View style={[s.root,{paddingTop:insets.top,paddingBottom:insets.bottom}]}><View style={s.header}><TouchableOpacity style={s.backButton} onPress={()=>router.back()}><Text style={s.back}>‹</Text></TouchableOpacity><Text numberOfLines={2} style={s.headerTitle}>Japa · {mantra.canonical_name}</Text></View>
-    <ScrollView contentContainerStyle={[s.content,{paddingBottom:Math.max(24,insets.bottom+16)}]}><View style={s.prepare}><Text style={s.prepareTitle}>Prepare · सामान्य जप की तैयारी</Text><GeneralJapaPreparation summary={!showPreparation}/><TouchableOpacity style={s.readMore} onPress={()=>setShowPreparation(value=>!value)}><Text style={s.readMoreText}>{showPreparation?'Show summary':'Read full preparation'}</Text></TouchableOpacity></View>
-      <View style={s.prepare}><Text style={s.prepareTitle}>This Mantra's Practice</Text><Text style={s.noteLeft}>{practiceLevelLabel(mantra.practice_level)}</Text>{practiceDisplayable&&(practiceRows.length||reviewedCounts)?practiceRows.map(([key,value])=>{const display=presentationValue(value);return display?<View key={key} style={s.practiceRow}><Text style={s.practiceLabel}>{key.replaceAll('_',' ')}</Text><Text style={s.practiceValue}>{display}</Text></View>:null;}):<><Text style={s.text}>इस मंत्र के लिए समीक्षा-आधारित विशेष जप-विधि अभी उपलब्ध नहीं है।</Text><Text style={s.noteLeft}>Reviewed mantra-specific practice guidance is not currently available.</Text></>}{reviewedCounts?<Text style={s.reviewedCount}>Reviewed mantra-specific count: {reviewedCounts}</Text>:null}</View>
-      <Text style={s.kicker}>DIGITAL MALA · COUNTING TOOL</Text><Text style={s.sanskrit}>{mantra.sanskrit_text_corrupted?'Sacred text under review':mantra.sanskrit_text}</Text><Text style={s.note}>Counting target — not a mantra-specific prescription.</Text>
-      <View style={s.progress}><View style={[s.progressFill,{width:`${Math.min(100,(cycle/target)*100)}%`}]}/></View><Text style={s.progressText}>{cycle} / {target} this cycle · {count} session repetitions</Text><Text style={s.malaText}>{malas} complete 108-repetition {malas===1?'cycle':'cycles'}</Text>
-      <View style={s.tapArea}><Animated.View style={{transform:[{scale}]}}><TouchableOpacity accessibilityLabel="Count one repetition" style={s.tapButton} onPress={tap}><Text style={s.count}>{cycle}</Text><Text style={s.tapText}>Tap</Text></TouchableOpacity></Animated.View></View>
-      <Text style={s.label}>Choose generic counting target</Text><View style={s.targets}>{TARGETS.map(value=><TouchableOpacity key={value} style={[s.target,target===value&&s.targetOn]} onPress={()=>choose(value)}><Text style={s.targetText}>{value}</Text></TouchableOpacity>)}</View>
-      <View style={s.customRow}><TextInput keyboardType="number-pad" value={custom} onChangeText={setCustom} placeholder="Custom" placeholderTextColor="#917667" style={s.custom}/><TouchableOpacity style={s.setButton} onPress={()=>{const value=Number(custom);if(Number.isInteger(value)&&value>0&&value<=10000)choose(value);}}><Text style={s.setText}>Set</Text></TouchableOpacity></View>
-      <View style={s.stats}><Text style={s.stat}>Today: {today}</Text><Text style={s.stat}>Streak: {streak} days</Text></View>
-      <TouchableOpacity style={s.reset} onPress={()=>Alert.alert('Reset session count?','This will clear the current manual count.',[{text:'Cancel',style:'cancel'},{text:'Reset',style:'destructive',onPress:()=>{setCount(0);persistCount(0);}}])}><Text style={s.resetText}>Reset session count</Text></TouchableOpacity>
-      {mantra.restriction_note?<Text style={s.warning}>{explanatoryText(mantra.restriction_note)}</Text>:null}</ScrollView></View>;
+  const {id}=useLocalSearchParams(),insets=useSafeAreaInsets();
+  const [mantra,setMantra]=useState(null),[practice,setPractice]=useState(null),[error,setError]=useState(''),[retry,setRetry]=useState(0);
+  const [mode,setMode]=useState('manual'),[audioState,setAudioState]=useState('idle'),[audioError,setAudioError]=useState(''),[storageError,setStorageError]=useState(false);
+  const [custom,setCustom]=useState(''),[goal,setGoal]=useState(''),[goalType,setGoalType]=useState('REPETITIONS');
+  const current=useRef(null),controller=useRef(null),alive=useRef(true),acceptTap=useRef(mantraPractice.createTapGuard(350)).current;
+  const tts=useMantraPronunciation(mantra&&!mantra.sanskrit_text_corrupted?mantra.sanskrit_text:null);
+  const pausePronunciation=tts.pause;
+  const source=useMemo(()=>mantra&&!mantra.sanskrit_text_corrupted?guided.selectGuidedAudio(mantra.audio_artifacts,mantra.id):null,[mantra]);
+  const save=useCallback(value=>{current.current=value;setPractice(value);persistPractice(value).then(()=>{if(alive.current)setStorageError(false);}).catch(()=>{if(alive.current){setStorageError(true);controller.current?.pause();}});},[]);
+  const increment=useCallback(()=>{if(!current.current)return;const next=advance(current.current);if(next.total_malas>current.current.total_malas)Vibration.vibrate(70);save(next);},[save]);
+  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
+  useFocusEffect(useCallback(()=>{let active=true;current.current=null;setPractice(null);setMantra(null);setError('');setMode('manual');
+    Promise.all([mantraCatalog.fetchMantraById(backendFetch,String(id||'')),loadPractice(String(id||''))]).then(([value,saved])=>{
+      if(!active)return;if(!value){setError('This Mantra is unavailable.');return;}setMantra(value);addRecentId(value.id);current.current=saved;setPractice(saved);setGoal(String(saved.goal_value));setGoalType(saved.goal_type);
+    }).catch(()=>{if(active)setError('Your practice could not be loaded. Please retry.');});return()=>{active=false;controller.current?.pause();pausePronunciation();current.current=null;};
+  // Retry intentionally reruns this focused load even though it is not request data.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[id,retry,pausePronunciation]));
+  useEffect(()=>{if(!source)return;const player=guided.createGuidedController({adapter:createPlaybackAdapter(source),getCount:()=>current.current?.session.count||0,getTarget:()=>current.current?.session.target||0,onComplete:increment,onState:(state,message)=>{setAudioState(state);setAudioError(message||'');}});controller.current=player;
+    return()=>{controller.current=null;player.dispose();};
+  },[source,increment]);
+  useEffect(()=>{const subscription=AppState.addEventListener('change',state=>{if(state!=='active'){controller.current?.pause();pausePronunciation();}else if(current.current)save(rollover(current.current));});
+    const timer=setInterval(()=>{if(current.current&&current.current.date!==experience.localDate())save(rollover(current.current));},30000);
+    return()=>{subscription.remove();clearInterval(timer);};
+  },[save,pausePronunciation]);
+  const stop=()=>Promise.all([controller.current?.stop(),tts.pause()]);
+  const reset=target=>Alert.alert('Start a new session?','Your completed repetitions remain in your personal history.',[{text:'Cancel',style:'cancel'},{text:'Start new',onPress:()=>{stop();save(newSession(current.current,target));}}]);
+  const choose=target=>{if(!validTarget(target)){Alert.alert('Choose a target','Enter a whole number from 1 to 100,000.');return;}if(current.current.session.count)reset(target);else{stop();save(newSession(current.current,target));}};
+  if(error)return <View style={[s.root,s.center]}><Text style={s.text}>{error}</Text><Button onPress={()=>setRetry(v=>v+1)}>Retry</Button><Button onPress={()=>router.back()}>Go back</Button></View>;
+  if(!mantra||!practice)return <View style={[s.root,s.center]}><ActivityIndicator color="#F4B76D"/><Text style={s.text}>Loading your practice…</Text></View>;
+  const session=practice.session,finished=session.finished,malas=Math.floor(session.count/108);
+  return <View style={[s.root,{paddingTop:insets.top}]}><View style={s.header}><Button onPress={()=>router.back()}>‹ Back</Button><Text style={s.heading}>{mantra.canonical_name}</Text></View>
+    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[s.content,{paddingBottom:insets.bottom+48}]}>
+      <Text style={s.sanskrit}>{mantra.sanskrit_text_corrupted?'Sacred text under review':mantra.sanskrit_text}</Text>
+      <Text style={s.note}>Ready for Japa? Sit comfortably, settle your attention, and begin when ready.</Text>
+      <Button onPress={()=>router.push({pathname:'/mantra_detail',params:{id:mantra.id,preparation:'1'}})}>View preparation</Button>
+      <View style={s.row}><Button onPress={()=>{stop();setMode('manual');}}>Manual Japa</Button><Button disabled={!source} onPress={async()=>{await tts.pause();setMode('guided');}}>Guided Japa</Button></View>
+      {!source?<Text style={s.note}>Reviewed recitation is not yet available for guided practice.</Text>:<Text style={s.note}>{source.synthetic?'Reviewed synthetic recitation':'Reviewed human recitation'}</Text>}
+      {mode==='manual'&&!mantra.sanskrit_text_corrupted?<><Button onPress={tts.isPlaying?tts.pause:async()=>{await controller.current?.stop();tts.play();}}>{tts.isPlaying?'Stop pronunciation aid':'Learn pronunciation'}</Button><Text style={s.note}>Synthetic pronunciation aid · not verified recitation</Text></>:null}
+      {tts.error?<Text accessibilityRole="alert" style={s.warning}>{tts.error}</Text>:null}
+      <Text style={s.label}>Your session target</Text><View style={s.row}>{TARGETS.map(n=><Button key={n} onPress={()=>choose(n)}>{n===session.target?`${n} ✓`:n}</Button>)}</View>
+      <View style={s.row}><TextInput accessibilityLabel="Custom session target" style={s.input} value={custom} onChangeText={setCustom} keyboardType="number-pad" placeholder="Custom" placeholderTextColor="#BBA18A"/><Button onPress={()=>choose(Number(custom))}>Set target</Button></View>
+      <Text style={s.note}>Your counting target is not a mantra-specific prescription.</Text>
+      <DigitalMala count={practice.total_repetitions} disabled={mode!=='manual'||finished||storageError} onPress={()=>{if(mode==='manual'&&!current.current.session.finished&&acceptTap()){Vibration.vibrate(8);increment();}}}/>
+      <Text style={s.progress}>{session.count} / {session.target} repetitions</Text><Text style={s.note}>Current mala: {practice.current_mala_repetition} / 108 beads</Text>
+      <Text style={s.note}>Completed malas in this session: {malas}</Text><Text style={s.note}>Completed malas today: {practice.completed_malas_today}</Text>
+      <View accessibilityRole="progressbar" accessibilityValue={{min:0,max:session.target,now:session.count}} style={s.track}><View style={[s.fill,{width:`${Math.min(100,session.count/session.target*100)}%`}]}/></View>
+      {mode==='guided'?<><Text style={s.note}>{audioState==='paused'?'Paused. Resume restarts the unfinished repetition.':audioState==='playing'?'Listening to one full repetition…':'Begin when ready.'}</Text><View style={s.row}>
+        <Button disabled={finished||storageError} onPress={()=>controller.current?.start()}>{audioState==='paused'?'Resume':'Start guided'}</Button><Button onPress={()=>controller.current?.pause()}>Pause</Button><Button onPress={()=>controller.current?.stop()}>Stop</Button><Button disabled={finished||storageError} onPress={()=>controller.current?.replay()}>Repeat current repetition</Button>
+      </View>{audioError?<Text accessibilityRole="alert" style={s.warning}>{audioError}</Text>:null}</>:null}
+      {finished?<View style={s.completion}><Text style={s.heading}>{session.count>=session.target?'Japa complete':'Session finished'}</Text><Text style={s.text}>{session.count>=session.target?completionMessage(mantra.completion_recitation):'Your practice has been saved.'}</Text><Text style={s.note}>{session.count} repetitions · {malas} complete 108-bead malas</Text><Button onPress={()=>{stop();save(newSession(current.current));}}>Begin another session</Button></View>:<View style={s.row}><Button onPress={()=>reset(session.target)}>Reset</Button><Button onPress={()=>{stop();save(finishSession(current.current));}}>Finish Session</Button></View>}
+      {storageError?<View><Text accessibilityRole="alert" style={s.warning}>Progress could not be saved. Keep this screen open and retry.</Text><Button onPress={()=>save(current.current)}>Retry saving</Button></View>:null}
+      <Text style={s.label}>Your daily practice goal</Text><View style={s.row}>{['REPETITIONS','MALAS','SESSIONS'].map(type=><Button key={type} onPress={()=>setGoalType(type)}>{type==='MALAS'?'108-bead malas':type==='SESSIONS'?'Sessions':'Repetitions'}{goalType===type?' ✓':''}</Button>)}</View>
+      <View style={s.row}><TextInput accessibilityLabel="Daily goal amount" style={s.input} keyboardType="number-pad" value={goal} onChangeText={setGoal}/><Button onPress={()=>{const n=Number(goal);if(validTarget(n))save({...current.current,goal_type:goalType,goal_value:n});else Alert.alert('Choose a goal','Enter a whole number from 1 to 100,000.');}}>Save daily goal</Button></View>
+      <PracticeReveal practice={practice} artwork={mantra.artwork}/>
+      <Text style={s.label}>Your practice history</Text><Text style={s.text}>Today: {practice.repetitions_today} repetitions · {practice.streak} day streak</Text><Text style={s.note}>Lifetime: {practice.total_repetitions} repetitions · {practice.total_malas} completed malas</Text><Text style={s.note}>Last practiced: {practice.last_practice_date||'Begin when ready'}</Text>
+      {practice.sessions.slice(-5).reverse().map((item,index)=><Text key={`${item.ended_at}-${index}`} style={s.note}>{item.date} · {item.count}/{item.target} repetitions · {item.complete?'Complete':'Finished early'}</Text>)}
+      <Text style={s.note}>Progress is saved on this device.</Text>
+    </ScrollView></View>;
 }
-const s=StyleSheet.create({root:{flex:1,backgroundColor:'#100702'},center:{alignItems:'center',justifyContent:'center'},header:{minHeight:58,flexDirection:'row',alignItems:'center',paddingHorizontal:10,borderBottomWidth:1,borderBottomColor:'#3D2417'},backButton:{width:44,height:44,justifyContent:'center'},back:{fontSize:34,color:'#F4A261'},headerTitle:{flex:1,flexShrink:1,fontSize:16,fontWeight:'800',color:'#FFF4E8'},content:{padding:16,alignItems:'stretch'},prepare:{borderRadius:15,borderWidth:1,borderColor:'#422719',backgroundColor:'#190C06',padding:14,marginBottom:14},prepareTitle:{fontSize:15,fontWeight:'800',color:'#F4A261',marginBottom:8},readMore:{minHeight:44,justifyContent:'center',alignItems:'flex-start',marginTop:8},readMoreText:{fontSize:12,fontWeight:'800',color:'#F4A261'},practiceRow:{marginTop:8},practiceLabel:{fontSize:9,textTransform:'uppercase',color:'#9F8370'},practiceValue:{fontSize:13,lineHeight:20,color:'#F7E7D9',marginTop:2},reviewedCount:{fontSize:12,fontWeight:'800',color:'#FFD7A2',marginTop:10},noteLeft:{fontSize:11,lineHeight:17,color:'#AA9180',marginTop:6},kicker:{fontSize:10,letterSpacing:1.2,textAlign:'center',color:'#B89D89'},sanskrit:{fontSize:22,lineHeight:36,textAlign:'center',color:'#E9C9FF',marginTop:14},note:{fontSize:11,lineHeight:17,textAlign:'center',color:'#AA9180',marginTop:10},progress:{height:8,borderRadius:4,overflow:'hidden',backgroundColor:'#352116',marginTop:22},progressFill:{height:8,backgroundColor:'#E8620A'},progressText:{fontSize:12,textAlign:'center',color:'#E6D1C1',marginTop:8},malaText:{fontSize:11,textAlign:'center',color:'#B89D89',marginTop:4},tapArea:{minHeight:190,alignItems:'center',justifyContent:'center',paddingVertical:20},tapButton:{width:150,height:150,borderRadius:75,alignItems:'center',justifyContent:'center',backgroundColor:'#2B122F',borderWidth:3,borderColor:'#8654A6'},count:{fontSize:38,fontWeight:'900',color:'#F4A261'},tapText:{fontSize:13,color:'#E8D7EF',marginTop:3},label:{fontSize:12,fontWeight:'800',color:'#DCC7B7',marginBottom:8},targets:{flexDirection:'row',flexWrap:'wrap',gap:8},target:{minWidth:50,minHeight:44,alignItems:'center',justifyContent:'center',borderRadius:12,borderWidth:1,borderColor:'#56351F'},targetOn:{backgroundColor:'#E8620A',borderColor:'#E8620A'},targetText:{fontSize:13,fontWeight:'800',color:'#FFF1E5'},customRow:{flexDirection:'row',gap:8,marginTop:10},custom:{flex:1,minHeight:48,borderRadius:12,borderWidth:1,borderColor:'#56351F',paddingHorizontal:12,color:'#fff'},setButton:{minWidth:70,minHeight:48,alignItems:'center',justifyContent:'center',borderRadius:12,backgroundColor:'#47230F'},setText:{color:'#FFD5AE',fontWeight:'800'},stats:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',gap:8,marginTop:18},stat:{color:'#CBB5A5'},reset:{minHeight:48,alignItems:'center',justifyContent:'center',marginTop:14},resetText:{color:'#E99A88'},warning:{fontSize:12,lineHeight:18,color:'#E9C0B7',backgroundColor:'#351A18',padding:12,borderRadius:12,marginTop:12},text:{color:'#fff'}});
+const s=StyleSheet.create({root:{flex:1,backgroundColor:'#100A06'},center:{alignItems:'center',justifyContent:'center',padding:24},header:{paddingHorizontal:12,flexDirection:'row',alignItems:'center',gap:12},heading:{fontSize:20,color:'#FFF0DE',fontWeight:'700',flexShrink:1},content:{padding:18},text:{color:'#EAD8C4',fontSize:15,lineHeight:24},sanskrit:{color:'#F4D6A5',fontSize:24,lineHeight:38,textAlign:'center',paddingVertical:18},note:{color:'#BEA58E',fontSize:13,lineHeight:21,marginVertical:5},label:{color:'#F4B76D',fontSize:17,fontWeight:'600',marginTop:22,marginBottom:10},row:{flexDirection:'row',flexWrap:'wrap',gap:8,marginVertical:6},button:{minHeight:48,justifyContent:'center',alignItems:'center',borderWidth:1,borderColor:'#63462D',borderRadius:14,paddingHorizontal:15,paddingVertical:10},buttonText:{color:'#F4D6A5',fontSize:14,textAlign:'center'},disabled:{opacity:.4},input:{minHeight:48,minWidth:100,flexGrow:1,color:'#FFF0DE',borderWidth:1,borderColor:'#63462D',borderRadius:14,paddingHorizontal:14},progress:{fontSize:22,fontWeight:'600',color:'#F4B76D',textAlign:'center'},track:{height:6,backgroundColor:'#46301F',borderRadius:4,overflow:'hidden',marginVertical:14},fill:{height:6,backgroundColor:'#F4B76D'},completion:{padding:20,backgroundColor:'#2C1D0E',borderRadius:20,marginVertical:16,gap:10},warning:{color:'#FFC8B7',lineHeight:22,marginVertical:12}});

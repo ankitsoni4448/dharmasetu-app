@@ -1,16 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Share, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { backendFetch } from '../utils/backend-config';
 import mantraCatalog from '../utils/mantraCatalog';
 import mantraPractice from '../utils/mantraPractice';
 import GeneralJapaPreparation from '../components/mantra/GeneralJapaPreparation';
-import { useMantraAudio } from '../utils/mantraAudio';
+import { useMantraPronunciation } from '../utils/useMantraPronunciation';
 import { addRecentId, getFavoriteIds, setFavoriteIds } from '../utils/mantraLibraryStorage';
 const { fetchMantraById, verificationLabel } = mantraCatalog;
-const { populatedEntries, presentationValue, explanatoryText, practiceLevelLabel, advancedPracticeState } = mantraPractice;
+const { populatedEntries, presentationValue, explanatoryText, shareMessage, practiceLevelLabel, advancedPracticeState } = mantraPractice;
 
 function Section({ title, children, initiallyOpen = false }) {
   const [open, setOpen] = useState(initiallyOpen);
@@ -20,44 +20,48 @@ function Section({ title, children, initiallyOpen = false }) {
 const Field = ({ label, value }) => { const display = presentationValue(value, label.includes('Hindi') ? 'सामग्री की समीक्षा जारी है।' : 'Content under review'); return display ? <View style={s.field}><Text style={s.fieldLabel}>{label}</Text><Text style={s.fieldValue}>{display}</Text></View> : null; };
 
 export default function MantraDetailScreen() {
-  const { id } = useLocalSearchParams(); const insets = useSafeAreaInsets();
+  const { id, preparation } = useLocalSearchParams(); const insets = useSafeAreaInsets();
   const [mantra, setMantra] = useState(null); const [loading, setLoading] = useState(true); const [loadError, setLoadError] = useState(false);
+  const [retry,setRetry]=useState(0);
   const [favorite, setFavorite] = useState(false);
-  const audio = useMantraAudio(mantra && !mantra.sanskrit_text_corrupted ? { id:mantra.id, name:mantra.canonical_name, text:mantra.sanskrit_text, lang:'sanskrit' } : null, { target:1, autoSave:false });
+  const audio = useMantraPronunciation(mantra && !mantra.sanskrit_text_corrupted ? mantra.sanskrit_text : null);
+  const pausePronunciation=audio.pause;
+  useFocusEffect(useCallback(()=>()=>{pausePronunciation();},[pausePronunciation]));
   useEffect(() => { let active = true; setLoading(true); setLoadError(false);
     fetchMantraById(backendFetch, String(id || '')).then(value => { if (active) { setMantra(value); setLoadError(false); } })
       .catch(() => { if (active) { setMantra(null); setLoadError(true); } }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [id]);
+  }, [id,retry]);
   useEffect(() => { if (mantra) { addRecentId(mantra.id); getFavoriteIds().then(ids => setFavorite(ids.includes(mantra.id))); } }, [mantra]);
   if (loading) return <View style={[s.root,s.center,{paddingTop:insets.top,paddingBottom:insets.bottom}]}><ActivityIndicator color="#F4A261"/><Text style={s.empty}>Loading Mantra…</Text></View>;
-  if (loadError) return <View style={[s.root,s.center,{paddingTop:insets.top,paddingBottom:insets.bottom}]}><Text style={s.empty}>Mantra details are temporarily unavailable.</Text><TouchableOpacity onPress={() => router.back()}><Text style={s.link}>Go back</Text></TouchableOpacity></View>;
-  if (!mantra) return <View style={[s.root,s.center,{paddingTop:insets.top,paddingBottom:insets.bottom}]}><Text style={s.empty}>Mantra entry not found.</Text><TouchableOpacity onPress={() => router.back()}><Text style={s.link}>Go back</Text></TouchableOpacity></View>;
+  if (loadError) return <View style={[s.root,s.center,{paddingTop:insets.top,paddingBottom:insets.bottom}]}><Text style={s.empty}>Mantra details are temporarily unavailable.</Text><TouchableOpacity style={s.action} onPress={()=>setRetry(n=>n+1)}><Text style={s.link}>Retry</Text></TouchableOpacity><TouchableOpacity onPress={() => router.back()}><Text style={s.link}>Go back</Text></TouchableOpacity></View>;
+  if (!mantra) return <View style={[s.root,s.center,{paddingTop:insets.top,paddingBottom:insets.bottom}]}><Text style={s.empty}>Mantra not found.</Text><TouchableOpacity onPress={() => router.back()}><Text style={s.link}>Go back</Text></TouchableOpacity></View>;
   const preparationRows = populatedEntries(mantra.preparation); const practiceRows = populatedEntries(mantra.practice);
   const practiceSourced = mantra.provenance.practice.length > 0; const practiceDisplayable = practiceSourced && mantra.verification.practice === 'VERIFIED';
   const advanced = advancedPracticeState(mantra);
   const sourceTitles = Object.values(mantra.provenance).flat().map(source => source.title || source.work || source.reference).filter(Boolean);
   const toggleFavorite = async () => { const ids = await getFavoriteIds(); const next = favorite ? ids.filter(value => value !== mantra.id) : [...ids, mantra.id]; await setFavoriteIds(next); setFavorite(!favorite); };
-  const share = () => Share.share({ message:[mantra.canonical_name,!mantra.sanskrit_text_corrupted && mantra.sanskrit_text,mantra.transliteration_simple,'Shared from DharmaSetu'].filter(Boolean).join('\n\n') });
+  const share = () => Share.share({ message:shareMessage(mantra) });
   return <View style={[s.root,{paddingTop:insets.top,paddingBottom:insets.bottom}]}><StatusBar style="light" />
     <View style={s.header}><TouchableOpacity style={s.headerButton} onPress={() => router.back()}><Text style={s.back}>‹</Text></TouchableOpacity><Text numberOfLines={2} style={s.headerTitle}>{mantra.canonical_name}</Text></View>
     <ScrollView contentContainerStyle={[s.content,{paddingBottom:Math.max(24,insets.bottom+16)}]}>
-      <Text style={s.eyebrow}>{mantra.deity_ids?.[0] || 'Universal'} · {(mantra.content_type || 'MANTRA').replaceAll('_',' ')}</Text>
+      <Text style={s.eyebrow}>{explanatoryText(mantra.deity_ids?.[0]) || 'Classification pending'} · {(mantra.content_type || 'MANTRA').replaceAll('_',' ')}</Text>
       <Text style={s.name}>{mantra.canonical_name}</Text><Text selectable={!mantra.sanskrit_text_corrupted} style={s.sanskrit}>{mantra.sanskrit_text_corrupted ? 'Sacred text under review' : mantra.sanskrit_text}</Text>
-      {mantra.transliteration_simple ? <Text selectable style={s.transliteration}>{mantra.transliteration_simple}</Text> : null}
+      {mantra.transliteration_simple ? <Text selectable style={s.transliteration}>{explanatoryText(mantra.transliteration_simple)}</Text> : null}
       <View style={s.statusRow}><Text style={s.review}>{verificationLabel(mantra.verification_status)}</Text><Text style={s.restricted}>{practiceLevelLabel(mantra.practice_level)}</Text></View>
       <View style={s.actions}>
-        {!mantra.sanskrit_text_corrupted ? <TouchableOpacity style={s.action} onPress={audio.isPlaying ? audio.pause : audio.play}><Text style={s.actionText}>{audio.isPlaying ? 'Stop device TTS' : 'Hear device TTS'}</Text><Text style={s.actionHint}>Synthetic pronunciation aid · not verified recitation</Text></TouchableOpacity> : null}
+        {!mantra.sanskrit_text_corrupted ? <TouchableOpacity style={s.action} onPress={audio.isPlaying ? audio.pause : audio.play}><Text style={s.actionText}>{audio.isPlaying ? 'Stop device TTS' : 'Learn pronunciation'}</Text><Text style={s.actionHint}>Synthetic pronunciation aid · not verified recitation</Text></TouchableOpacity> : null}
         <TouchableOpacity style={[s.action,s.primary]} onPress={() => router.push({pathname:'/mantra_japa',params:{id:mantra.id}})}><Text style={[s.actionText,s.primaryText]}>Start Japa</Text></TouchableOpacity>
         <TouchableOpacity style={s.action} onPress={toggleFavorite}><Text style={s.actionText}>{favorite ? 'Saved' : 'Save'}</Text></TouchableOpacity>
         <TouchableOpacity style={s.action} onPress={share}><Text style={s.actionText}>Share</Text></TouchableOpacity>
       </View>
+      {audio.error?<Text accessibilityRole="alert" style={s.note}>{audio.error}</Text>:null}
       {(mantra.meanings?.hi || mantra.meanings?.en || mantra.content_type) ? <Section title="About / Meaning" initiallyOpen><Field label="Meaning · Hindi" value={mantra.meanings?.hi}/><Field label="Meaning · English" value={mantra.meanings?.en}/><Field label="Content type" value={(mantra.content_type || '').replaceAll('_',' ')}/></Section> : null}
       {mantra.traditional_context ? <Section title="Why / traditional context"><Text style={s.body}>{explanatoryText(mantra.traditional_context)}</Text></Section> : null}
-      <Section title="General Japa Preparation"><GeneralJapaPreparation /></Section>
+      <Section title="General Japa Preparation" initiallyOpen={preparation==='1'}><GeneralJapaPreparation /></Section>
       <Section title="This Mantra's Practice">{practiceDisplayable && !advanced.guarded && (preparationRows.length || practiceRows.length) ? <>{preparationRows.map(([key,value])=><Field key={`preparation-${key}`} label={key.replaceAll('_',' ')} value={value}/>) }{practiceRows.map(([key,value])=><Field key={`practice-${key}`} label={key.replaceAll('_',' ')} value={value}/>)}</> : <><Text style={s.body}>इस मंत्र के लिए समीक्षा-आधारित विशेष जप-विधि अभी उपलब्ध नहीं है।</Text><Text style={s.note}>Reviewed mantra-specific practice guidance is not currently available.</Text></>}</Section>
       <Section title="Pronunciation / Audio"><Field label="Learning transliteration" value={mantra.transliteration_simple}/><Text style={s.note}>Device speech is a synthetic pronunciation aid, not verified recitation.</Text>{mantra.verification.pronunciation !== 'VERIFIED' ? <Text style={s.note}>Pronunciation verification is pending.</Text> : null}</Section>
-      {(mantra.tradition || mantra.sampradaya || sourceTitles.length || mantra.source_references.length) ? <Section title="Source & Tradition"><Field label="Tradition" value={mantra.tradition}/><Field label="Sampradaya" value={mantra.sampradaya}/><Text style={s.body}>{[...sourceTitles,...mantra.source_references.map(source=>source.title || source.name).filter(Boolean)].join(', ')}</Text></Section> : null}
+      {(mantra.tradition || mantra.sampradaya || sourceTitles.length || mantra.source_references.length) ? <Section title="Source & Tradition"><Field label="Tradition" value={mantra.tradition}/><Field label="Sampradaya" value={mantra.sampradaya}/><Text style={s.body}>{[...sourceTitles,...mantra.source_references.map(source=>source.title || source.name).filter(Boolean)].map(value=>explanatoryText(value)).filter(Boolean).join(', ')}</Text></Section> : null}
       {advanced.guarded ? <Section title="Advanced Practice / guidance"><Text style={s.body}>{explanatoryText(mantra.restriction_note) || `${practiceLevelLabel(mantra.practice_level)} may require qualified guidance. Unsourced advanced instructions are not displayed.`}</Text></Section> : mantra.restriction_note ? <Section title="Practice / restriction note"><Text style={s.body}>{explanatoryText(mantra.restriction_note)}</Text></Section> : null}
     </ScrollView></View>;
 }
