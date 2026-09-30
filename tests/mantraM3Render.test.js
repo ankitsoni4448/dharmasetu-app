@@ -15,9 +15,9 @@ test('actual mala renders 108 beads and advances only one completed bead',()=>{
   const Mala=load('components/mantra/DigitalMala.js').default;
   const render=count=>renderToStaticMarkup(React.createElement(Mala,{count,disabled:false,onPress:()=>{}}));
   const first=render(0),second=render(1),full=render(108),next=render(109);
-  assert.equal((first.match(/position[^<>]*absolute[^<>]*width[^<>]*6/g)||[]).length,108);
-  assert.equal((second.match(/#F4B76D/g)||[]).length-(first.match(/#F4B76D/g)||[]).length,1);
-  assert.match(full,/0 of 108 beads/);assert.match(next,/1 of 108 beads/);
+  assert.equal((first.match(/#5A3C27/g)||[]).length,108);
+  assert.equal((second.match(/#D69043/g)||[]).length-(first.match(/#D69043/g)||[]).length,1);
+  assert.match(full,/>0<\/span>/);assert.match(full,/>of 108 repetitions<\/span>/);assert.match(next,/>1<\/span>/);assert.match(first,/Meru bead, not counted/);
 });
 test('actual reveal renders neutral light without approved artwork and full progress at goal',()=>{
   const Reveal=load('components/mantra/PracticeReveal.js').default;
@@ -35,7 +35,7 @@ test('real progress storage serializes immutable snapshots and reloads target/co
   const one=first.persistPractice(experience.advance(state)),two=first.persistPractice(experience.advance(experience.advance(state)));
   await new Promise(r=>setTimeout(r,0));assert.equal(started.length,1);releases.shift()();await one;
   await new Promise(r=>setTimeout(r,0));assert.equal(started.length,2);releases.shift()();await two;
-  const restored=await adapter().loadPractice('m');assert.equal(restored.session.count,2);assert.equal(restored.session.target,51);
+  const restored=await adapter().loadPractice('m');assert.equal(restored.session.count,2);assert.equal(restored.session.targetValue,51);
 });
 test('failed storage reads and malformed saved JSON never silently overwrite progress',async()=>{
   let writes=0;const storage={getItem:async()=>'{bad',setItem:async()=>writes++};

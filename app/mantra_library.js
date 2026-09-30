@@ -10,20 +10,19 @@ import discovery from '../utils/mantraDiscovery';
 import { addRecentId, getFavoriteIds, getRecentIds, setFavoriteIds } from '../utils/mantraLibraryStorage';
 
 const MODES = ['Library', 'Favorites', 'Recent'];
-const { fetchMantraCatalog, filterMantras, filtersFor, verificationLabel } = mantraCatalog;
+const { fetchMantraCatalog, filterMantras, filtersFor } = mantraCatalog;
 const { practiceLevelLabel, explanatoryText } = mantraPractice;
 const pretty = value => (explanatoryText(value)||'Under review').replaceAll('_', ' ').toLowerCase().replace(/^./, char => char.toUpperCase());
 
 const MantraCard = memo(function MantraCard({ item, favorite, onFavorite, onOpen }) {
   const practiceBadge = practiceLevelLabel(item.practice_level);
-  const verificationBadge = verificationLabel(item.verification_status);
   return <Pressable accessibilityRole="button" onPress={() => onOpen(item)} style={s.card}>
     <View style={s.cardHeader}><View style={s.cardIdentity}><Text style={s.cardTitle}>{item.canonical_name}</Text>
       <Text style={s.cardMeta}>{explanatoryText(item.deity_ids[0]) || 'Classification pending'} · {pretty(item.content_type)}</Text></View>
       <TouchableOpacity accessibilityLabel={favorite ? 'Remove favorite' : 'Save favorite'} hitSlop={10} style={s.favorite}
         onPress={() => onFavorite(item.id)}><Text style={s.favoriteText}>{favorite ? '♥' : '♡'}</Text></TouchableOpacity></View>
     <Text numberOfLines={2} ellipsizeMode="tail" style={s.sanskrit}>{item.sanskrit_text_corrupted?'Sacred text under review':item.sanskrit_text}</Text>
-    <View style={s.badgeRow}><Text style={s.reviewBadge}>{verificationBadge}</Text><Text style={s.practiceBadge}>{practiceBadge}</Text></View>
+    <View style={s.badgeRow}><Text style={s.practiceBadge}>{practiceBadge}</Text></View>
     <Text style={s.openText}>View details ›</Text>
   </Pressable>;
 });

@@ -1,13 +1,13 @@
 'use strict';
 
-const AUDIO_HIERARCHY = ['VERIFIED_HUMAN_RECITATION','REVIEWED_FOUNDER_VOICE','REVIEWED_SYNTHETIC_VOICE','DEVICE_TTS_FALLBACK'];
+const AUDIO_HIERARCHY = ['FOUNDER_RECORDED','VERIFIED_HUMAN_RECITATION','FOUNDER_AI_GENERATED','SYNTHETIC_PREVIEW','UNVERIFIED'];
+const GUIDED_SOURCE_TYPES = new Set(AUDIO_HIERARCHY.slice(0,3));
 function selectGuidedAudio(artifacts, mantraId) {
-  return (Array.isArray(artifacts)?artifacts:[]).filter(a=>a && a.mantra_id===mantraId && AUDIO_HIERARCHY.slice(0,3).includes(a.source_type)
+  return (Array.isArray(artifacts)?artifacts:[]).filter(a=>a && a.mantra_id===mantraId && GUIDED_SOURCE_TYPES.has(a.source_type)
     && a.publication_status==='APPROVED' && a.pronunciation_review_status==='VERIFIED' && a.audio_verification==='VERIFIED'
     && typeof a.reviewed_by==='string' && a.reviewed_by.trim() && Number.isFinite(Date.parse(a.reviewed_at)) && a.audio_version && a.duration>0 && /^https:\/\//.test(a.normal_url || '')
     && a.voice_identity && a.generation_method && typeof a.synthetic==='boolean'
-    && (a.source_type==='VERIFIED_HUMAN_RECITATION' ? !a.synthetic : a.synthetic && a.provider && a.model)
-    && (a.source_type!=='REVIEWED_FOUNDER_VOICE' || (a.consent_id && a.voice_model_approval_id)))
+    && (a.source_type==='FOUNDER_AI_GENERATED' ? a.synthetic && a.provider && a.model && a.consent_id && a.voice_model_approval_id : !a.synthetic))
     .sort((a,b)=>AUDIO_HIERARCHY.indexOf(a.source_type)-AUDIO_HIERARCHY.indexOf(b.source_type))[0] || null;
 }
 // Adapter contract: play({onComplete,onError}) starts ONE complete repetition;
@@ -44,4 +44,4 @@ function createGuidedController({adapter,getCount,getTarget,onComplete,onState=(
     getState:()=>state, flush:()=>queue,
   };
 }
-module.exports={AUDIO_HIERARCHY,selectGuidedAudio,createGuidedController};
+module.exports={AUDIO_HIERARCHY,GUIDED_SOURCE_TYPES,selectGuidedAudio,createGuidedController};

@@ -24,11 +24,11 @@ test('date rollover retains lifetime/mala/session and recomputes streak',()=>{
 test('daily mala goal requires 108 repetitions today even with yesterday carry-over',()=>{
   const s=counted(107,200),a=exp.advance(s,next);assert.equal(a.total_malas,1);assert.equal(a.completed_malas_today,0);assert.equal(a.repetitions_today,1);
 });
-test('persistence round-trip retains target, goal and count; another Mantra cannot inherit them',()=>{
-  const state={...counted(7,51),goal_type:'MALAS',goal_value:11};
+test('persistence round-trip retains mode, target and count; another Mantra cannot inherit them',()=>{
+  const state=exp.newSession(counted(7,51),{mode:'MALA_ROUNDS',targetValue:11},date);
   assert.deepEqual(exp.restorePractice(JSON.parse(JSON.stringify(state)),'m',date),state);
   assert.equal(exp.restorePractice(state,'other',date).session.count,0);
-  assert.deepEqual(exp.TARGETS,[11,21,51,108]);assert.equal(exp.validTarget(1.5),false);
+  assert.equal(exp.restorePractice(state,'m',date).session.mode,'MALA_ROUNDS');assert.equal(exp.validTarget(1.5),false);
 });
 test('daily goal reveal is deterministic, clamped and distinguishes repetitions, sessions and malas',()=>{
   const s=counted(11);assert.equal(exp.goalProgress({...s,goal_value:11}).fraction,1);
@@ -42,6 +42,18 @@ test('daily goal reveal is deterministic, clamped and distinguishes repetitions,
 test('session goal totals survive bounded recent history',()=>{
   let s=exp.freshPractice('m',date);for(let i=0;i<110;i++){s=exp.newSession(s,1,date);s=exp.advance(s,date);}
   assert.equal(s.sessions.length,100);assert.equal(s.completed_sessions_today,110);
+});
+test('11-mala plan equals 1188 repetitions and continues automatically after every 108 boundary',()=>{
+  let state=exp.newSession(exp.freshPractice('m',date),{mode:'MALA_ROUNDS',targetValue:11},date);
+  assert.equal(exp.sessionTargetRepetitions(state.session),1188);
+  for(let i=0;i<108;i++)state=exp.advance(state,date);
+  assert.equal(state.session.finished,false);assert.equal(state.session.count,108);assert.equal(exp.sessionProgress(state).currentMala,2);assert.equal(exp.sessionProgress(state).currentBead,0);
+  for(let i=108;i<1188;i++)state=exp.advance(state,date);
+  assert.equal(state.session.finished,true);assert.equal(state.session.count,1188);assert.equal(exp.sessionProgress(state).completedMalas,11);
+});
+test('stored M3 repetition sessions migrate without changing count or target',()=>{
+  const legacy={...exp.freshPractice('m',date),version:3,session:{count:7,target:51,finished:false,started_at:date.toISOString()}};
+  const restored=exp.restorePractice(legacy,'m',date);assert.equal(restored.version,4);assert.equal(restored.session.mode,'REPETITIONS');assert.equal(restored.session.targetValue,51);assert.equal(restored.session.count,7);
 });
 function harness(target=11){
   let count=0,active=0,maxActive=0;const events=[];
@@ -70,12 +82,14 @@ test('pause while loading cancels pending audio before playback',async()=>{
   const player=guided.createGuidedController({adapter:{play:async({isCurrent})=>{await new Promise(r=>{release=r;});if(isCurrent())played++;},stop:async()=>{}},getCount:()=>0,getTarget:()=>11,onComplete:()=>{}});
   player.start();await tick();const paused=player.pause();release();await paused;assert.equal(played,0);
 });
-test('audio hierarchy excludes TTS and unreviewed founder generation',()=>{
+test('audio hierarchy admits only independently verified guided sources',()=>{
   const base={mantra_id:'m',publication_status:'APPROVED',pronunciation_review_status:'VERIFIED',audio_verification:'VERIFIED',reviewed_by:'fixture',reviewed_at:'2026-09-28',audio_version:'1',duration:2,normal_url:'https://example.org/fixture.mp3',voice_identity:'fixture',generation_method:'recording',synthetic:false};
-  const human={...base,source_type:'VERIFIED_HUMAN_RECITATION'},synthetic={...base,source_type:'REVIEWED_SYNTHETIC_VOICE',synthetic:true,provider:'fixture',model:'fixture'};
-  assert.equal(guided.selectGuidedAudio([synthetic,human],'m'),human);
-  assert.equal(guided.selectGuidedAudio([{...base,source_type:'DEVICE_TTS_FALLBACK'}],'m'),null);
-  assert.equal(guided.selectGuidedAudio([{...base,source_type:'REVIEWED_FOUNDER_VOICE'}],'m'),null);
+  const human={...base,source_type:'VERIFIED_HUMAN_RECITATION'},founder={...base,source_type:'FOUNDER_RECORDED'};
+  const founderAi={...base,source_type:'FOUNDER_AI_GENERATED',synthetic:true,provider:'fixture',model:'fixture',consent_id:'consent',voice_model_approval_id:'approval'};
+  assert.equal(guided.selectGuidedAudio([human,founderAi,founder],'m'),founder);
+  assert.equal(guided.selectGuidedAudio([{...base,source_type:'SYNTHETIC_PREVIEW',synthetic:true}],'m'),null);
+  assert.equal(guided.selectGuidedAudio([{...base,source_type:'UNVERIFIED'}],'m'),null);
+  assert.equal(guided.selectGuidedAudio([{...founderAi,consent_id:null}],'m'),null);
   assert.equal(guided.selectGuidedAudio([human],'different'),null);
 });
 test('Unicode detection withholds but never rewrites sacred or explanatory fields',()=>{
@@ -108,6 +122,6 @@ test('1000 records preserve pagination and search',async()=>{
 test('consumer screen contracts: compact filters, footer, preparation only in Detail, reset confirmation',()=>{
   const library=read('app/mantra_library.js'),detail=read('app/mantra_detail.js'),japa=read('app/mantra_japa.js');
   assert.doesNotMatch(library,/catalog content|catalog entries/);assert.match(library,/<Modal/);assert.match(library,/Math.max\(64, insets.bottom \+ 48\)/);assert.match(library,/mantra-library-footer/);
-  assert.match(detail,/<GeneralJapaPreparation \/>/);assert.doesNotMatch(japa,/GeneralJapaPreparation/);assert.match(japa,/View preparation/);assert.match(japa,/createTapGuard\(350\)/);assert.match(japa,/Alert.alert\('Start a new session/);
+  assert.match(detail,/<GeneralJapaPreparation \/>/);assert.doesNotMatch(japa,/GeneralJapaPreparation|PracticeReveal|Movement of Light/);assert.match(japa,/View preparation/);assert.match(japa,/createTapGuard\(350\)/);assert.match(japa,/Alert.alert\('Change practice setup/);assert.doesNotMatch(japa,/Begin another session/);
   assert.doesNotMatch(read('components/mantra/PracticeReveal.js'),/fetch\(|imagegen|openai/i);
 });

@@ -14,8 +14,8 @@ test('general Japa preparation is centralized, bilingual and categorized', () =>
   const value = preparation.GENERAL_JAPA_PREPARATION;
   assert.equal(value.titleHi, 'सामान्य जप की तैयारी');
   assert.equal(value.titleEn, 'General Japa Preparation');
-  assert.equal(value.items.length, 9);
-  assert.ok(value.items.every(item => item.hi && item.en && ['RECOMMENDED','TRADITION_DEPENDENT','INFORMATIONAL'].includes(item.category)));
+  assert.equal(value.items.length, 6);
+  assert.ok(value.items.every(item => item.hi && item.en && item.category === 'RECOMMENDED'));
 });
 
 test('general guidance remains separate from canonical mantra practice', () => {
@@ -27,16 +27,18 @@ test('general guidance remains separate from canonical mantra practice', () => {
 test('Detail owns full preparation and Japa offers only a compact link', () => {
   const detail = read('app/mantra_detail.js'); const japa = read('app/mantra_japa.js');
   assert.match(detail, /<GeneralJapaPreparation \/>/); assert.doesNotMatch(japa, /GeneralJapaPreparation/);
-  assert.match(detail, /Reviewed mantra-specific practice guidance is not currently available/);
+  assert.doesNotMatch(detail, /Reviewed mantra-specific practice guidance is not currently available/);
+  assert.match(detail, /Mantra-specific Practice/);
   assert.match(japa, /<DigitalMala/);
-  assert.match(japa, /counting target is not a mantra-specific prescription/);
+  assert.match(japa, /personal counting target, not mantra-specific practice guidance/);
   assert.match(japa, /View preparation/);
 });
 
-test('synthetic audio and corrupt sacred-text presentation remain explicit', () => {
+test('pronunciation lives in Japa and corrupt sacred-text presentation remains explicit', () => {
   const detail = read('app/mantra_detail.js'); const japa = read('app/mantra_japa.js');
-  assert.match(detail, /Synthetic pronunciation aid · not verified recitation/);
-  assert.match(detail, /Pronunciation verification is pending/);
+  assert.doesNotMatch(detail, /Pronunciation \/ Audio|Learn pronunciation|device speech/i);
+  assert.match(japa, /Learn pronunciation/);
+  assert.match(japa, /device speech and is not verified recitation/);
   assert.match(detail, /sanskrit_text_corrupted \? 'Sacred text under review'/);
   assert.match(japa, /sanskrit_text_corrupted\?'Sacred text under review'/);
 });

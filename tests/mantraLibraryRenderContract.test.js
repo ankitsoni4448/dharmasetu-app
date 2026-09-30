@@ -13,7 +13,7 @@ assert.match(screen, /testID="mantra-library-list"/);
 assert.match(screen, /filters\.deity/);
 assert.match(screen, /filters\.purpose/);
 assert.match(screen, /filters\.contentType/);
-assert.match(screen, /verificationLabel\(item\.verification_status\)/);
+assert.doesNotMatch(screen, /verificationLabel\(item\.verification_status\)/);
 assert.match(screen, /fetchMantraCatalog\(backendFetch\)/);
 assert.doesNotMatch(screen, /data\/mantra(?:V2|Index)/);
 
