@@ -26,7 +26,7 @@ export default function MantraJapaScreen(){
   const increment=useCallback(()=>{if(!current.current)return;const before=sessionProgress(current.current),next=advance(current.current),after=sessionProgress(next);if(after.completedMalas>before.completedMalas)Vibration.vibrate([0,55,70,55]);save(next);},[save]);
   useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
   useFocusEffect(useCallback(()=>{let active=true;current.current=null;setPractice(null);setMantra(null);setError('');setInteraction('manual');
-    Promise.all([mantraCatalog.fetchMantraById(backendFetch,String(id||'')),loadPractice(String(id||''))]).then(([value,saved])=>{if(!active)return;if(!value){setError('This Mantra is unavailable.');return;}setMantra(value);addRecentId(value.id);current.current=saved;setPractice(saved);})
+    Promise.all([mantraCatalog.fetchMantraById(backendFetch,String(id||'')),loadPractice(String(id||''))]).then(([value,saved])=>{if(!active)return;if(!value){setError('This Mantra is unavailable.');return;}if(!mantraPractice.japaEligibility(value).eligible){setError('This sacred work is available for reading or recitation, not bead-counted Japa.');return;}setMantra(value);addRecentId(value.id);current.current=saved;setPractice(saved);})
       .catch(()=>{if(active)setError('Your practice could not be loaded. Please retry.');});
     return()=>{active=false;controller.current?.pause();pausePronunciation();current.current=null;};
   // Retry intentionally repeats this focused load.

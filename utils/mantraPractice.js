@@ -1,6 +1,14 @@
 'use strict';
 
 const ADVANCED_LEVELS = new Set(['INITIATION_GUIDANCE', 'RESTRICTED']);
+const JAPA_CONTENT_TYPES = new Set(['MANTRA','NAMA_JAPA','VEDIC_MANTRA','BIJA_MANTRA','GAYATRI_MANTRA','DHYANA_MANTRA','SHANTI_MANTRA']);
+const LONG_FORM_CONTENT_TYPES = new Set(['STOTRA','ASHTAKAM','KAVACHA','CHALISA','NAMAVALI','SAHASRANAMA']);
+function japaEligibility(mantra) {
+  const type=mantra?.content_type||mantra?.mantra_content_type;
+  if(LONG_FORM_CONTENT_TYPES.has(type))return {eligible:false,reason:'This is a long-form recitation.'};
+  if(!JAPA_CONTENT_TYPES.has(type))return {eligible:false,reason:'This content is intended for reading or recitation.'};
+  return {eligible:true,reason:null};
+}
 
 function populatedEntries(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
@@ -63,5 +71,5 @@ function createSerializedWriter(write) {
   return value => { pending = pending.catch(() => {}).then(() => write(value)); return pending; };
 }
 
-module.exports = { populatedEntries, presentationValue, hasReplacementCorruption, explanatoryText, shareMessage, practiceLevelLabel, advancedPracticeState, createTapGuard,
+module.exports = { JAPA_CONTENT_TYPES, LONG_FORM_CONTENT_TYPES, japaEligibility, populatedEntries, presentationValue, hasReplacementCorruption, explanatoryText, shareMessage, practiceLevelLabel, advancedPracticeState, createTapGuard,
   createGuidedJapaState, createGeneralPreparation, createSerializedWriter };

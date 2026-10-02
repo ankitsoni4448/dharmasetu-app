@@ -2,6 +2,7 @@
 /* global __dirname */
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const exp=require('../utils/mantraExperience'),guided=require('../utils/mantraGuided'),quality=require('../utils/mantraQuality'),discovery=require('../utils/mantraDiscovery'),catalog=require('../utils/mantraCatalog');
+const practice=require('../utils/mantraPractice');
 const date=new Date(2026,8,28,12),next=new Date(2026,8,29,12);
 const read=name=>fs.readFileSync(path.join(__dirname,'..',name),'utf8');
 function counted(n,target=n){let s=exp.newSession(exp.freshPractice('m',date),target,date);for(let i=0;i<n;i++)s=exp.advance(s,date);return s;}
@@ -124,4 +125,9 @@ test('consumer screen contracts: compact filters, footer, preparation only in De
   assert.doesNotMatch(library,/catalog content|catalog entries/);assert.match(library,/<Modal/);assert.match(library,/Math.max\(64, insets.bottom \+ 48\)/);assert.match(library,/mantra-library-footer/);
   assert.match(detail,/<GeneralJapaPreparation \/>/);assert.doesNotMatch(japa,/GeneralJapaPreparation|PracticeReveal|Movement of Light/);assert.match(japa,/View preparation/);assert.match(japa,/createTapGuard\(350\)/);assert.match(japa,/Alert.alert\('Change practice setup/);assert.doesNotMatch(japa,/Begin another session/);
   assert.doesNotMatch(read('components/mantra/PracticeReveal.js'),/fetch\(|imagegen|openai/i);
+});
+test('Japa eligibility excludes long-form works and ordinary verse or prayer',()=>{
+  for(const content_type of ['STOTRA','ASHTAKAM','KAVACHA','CHALISA','NAMAVALI','SAHASRANAMA','SHLOKA','PRAYER','PRARTHANA'])assert.equal(practice.japaEligibility({content_type}).eligible,false);
+  for(const content_type of ['MANTRA','NAMA_JAPA','VEDIC_MANTRA','BIJA_MANTRA','GAYATRI_MANTRA','DHYANA_MANTRA','SHANTI_MANTRA'])assert.equal(practice.japaEligibility({content_type}).eligible,true);
+  assert.match(read('app/mantra_detail.js'),/japa\.eligible/);assert.match(read('app/mantra_japa.js'),/japaEligibility\(value\)/);
 });
