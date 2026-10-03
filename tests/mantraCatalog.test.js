@@ -66,6 +66,12 @@ test('verification labels use stored canonical status only', () => {
   assert.equal(catalog.verificationLabel('AI_CONFIDENT'), 'Verification pending');
   assert.equal(catalog.normalizeMantraRecord({ ...valid, verification_status: 'AI_CONFIDENT' }).verification_status, 'UNVERIFIED');
 });
+test('transliteration evidence remains independent from pronunciation', () => {
+  const record = catalog.normalizeMantraRecord({ ...valid, id:'transliteration', transliteration:'Om', transliteration_verification:'VERIFIED', transliteration_sources:[{reference:'edition'}], pronunciation_verification:'UNVERIFIED' });
+  assert.equal(record.verification.transliteration,'VERIFIED');
+  assert.equal(record.provenance.transliteration.length,1);
+  assert.equal(record.verification.pronunciation,'UNVERIFIED');
+});
 
 test('sacred-text corruption is flagged and never auto-corrected', () => {
   const corrupted = `unchanged\uFFFDsacred`;

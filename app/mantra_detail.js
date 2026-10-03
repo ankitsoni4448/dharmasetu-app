@@ -35,6 +35,7 @@ export default function MantraDetailScreen() {
   const preparationRows = populatedEntries(mantra.preparation); const practiceRows = populatedEntries(mantra.practice);
   const practiceSourced = mantra.provenance.practice.length > 0; const practiceDisplayable = practiceSourced && mantra.verification.practice === 'VERIFIED';
   const meaningDisplayable = mantra.provenance.meaning.length > 0 && mantra.verification.meaning === 'VERIFIED';
+  const transliterationDisplayable = mantra.provenance.transliteration.length > 0 && mantra.verification.transliteration === 'VERIFIED';
   const advanced = advancedPracticeState(mantra);
   const japa = japaEligibility(mantra);
   const sourceTitles = Object.values(mantra.provenance).flat().map(source => source.title || source.work || source.reference).filter(Boolean);
@@ -45,7 +46,7 @@ export default function MantraDetailScreen() {
     <ScrollView contentContainerStyle={[s.content,{paddingBottom:Math.max(24,insets.bottom+16)}]}>
       <Text style={s.eyebrow}>{explanatoryText(mantra.deity_ids?.[0]) || 'Classification pending'} · {(mantra.content_type || 'MANTRA').replaceAll('_',' ')}</Text>
       <Text style={s.name}>{mantra.canonical_name}</Text><Text selectable={!mantra.sanskrit_text_corrupted} style={s.sanskrit}>{mantra.sanskrit_text_corrupted ? 'Sacred text under review' : mantra.sanskrit_text}</Text>
-      {mantra.transliteration_simple ? <Text selectable style={s.transliteration}>{explanatoryText(mantra.transliteration_simple)}</Text> : null}
+      {transliterationDisplayable && mantra.transliteration_simple ? <Text selectable style={s.transliteration}>{explanatoryText(mantra.transliteration_simple)}</Text> : null}
       {advanced.guarded?<View style={s.statusRow}><Text style={s.restricted}>{practiceLevelLabel(mantra.practice_level)}</Text></View>:null}
       <View style={s.actions}>
         <TouchableOpacity style={s.action} onPress={toggleFavorite}><Text style={s.actionText}>{favorite ? 'Saved' : 'Save'}</Text></TouchableOpacity>
